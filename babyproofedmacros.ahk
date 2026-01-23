@@ -545,7 +545,7 @@ makeSettings() {
         frameSleep(1)
         Send("{Blind}{up up}")
         Send("{Blind}{up}") ; Not using mousewheel because it breaks a lot for some people or something idk retards dude.
-        if (ewoDelay > 0) {
+        if (ewoDelay != "" && ewoDelay > 0) {
             timeDelta := stopCounting(startTime)
             remainingTime := ewoDelay - timeDelta
             if (remainingTime > 0) {
