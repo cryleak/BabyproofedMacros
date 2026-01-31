@@ -1,4 +1,5 @@
-﻿#Requires AutoHotkey v2.1-alpha.18
+﻿;@Ahk2Exe-AddResource *24 input.manifest, 1
+#Requires AutoHotkey v2.1-alpha.18
 #SingleInstance Force
 #Warn All, Off
 #UseHook true
@@ -40,7 +41,7 @@ for key, value in enumTabs {
     tabs.Push(value)
 }
 global controlOverMouse := ""
-global DPIScale := A_ScreenDPI / 96 ; Perform DPI scaling ourselves because ControlGetPos doesn't account for it and results in weird behavior on more than 100% scaling.
+global DPIScale := 1 ; A_ScreenDPI / 96
 global yOffset := 35 * DPIScale
 global textOffset := 20 * DPIScale
 global elementOffset := (textOffset + 300) * DPIScale
