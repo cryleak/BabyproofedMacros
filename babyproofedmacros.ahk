@@ -49,6 +49,9 @@ global settingYOffset := 20 * DPIScale
 global inCEO := false
 global chatOpen := false
 global activeTab := 1
+global hTimer := DllCall("CreateWaitableTimer", "Ptr", 0, "Int", 0, "Ptr", 0, "Ptr")
+global queryPerformanceFrequency := 0
+DllCall("QueryPerformanceFrequency", "Int64P", &queryPerformanceFrequency)
 Hotkey("~$*Enter", (*) => onChatClose())
 Hotkey("~$*Esc", (*) => onChatClose())
 
@@ -364,7 +367,21 @@ scrollInDirection(direction, amount, extraInput?) {
 accurateSleep(ms) {
     ; DllCall("Sleep", "UInt", ms)
 
-    DllCall("ntdll\ZwDelayExecution", "Int", 0, "Int64*", -(ms * 10000))
+    ; DllCall("ntdll\ZwDelayExecution", "Int", 0, "Int64*", -(ms * 10000))
+
+    ; lets you sleep in 0.5ms intervals instead of 1ms
+    dueTime := Buffer(8, 0)
+    NumPut("Int64", -(ms * 10000), dueTime, 0)
+
+    start := Buffer(8, 0)
+    DllCall("QueryPerformanceCounter", "Ptr", start)
+
+    if (!DllCall("SetWaitableTimer", "Ptr", hTimer, "Ptr", dueTime, "Int", 0, "Ptr", 0, "Ptr", 0, "Int", 0)) {
+        throw Error("Failed to set waitable timer for some reason")
+        ExitApp()
+    }
+
+    DllCall("WaitForSingleObject", "Ptr", hTimer, "UInt", 0xFFFFFFFF)
 }
 
 GetControlFromCoordinates(x, y) {
@@ -401,6 +418,23 @@ retrieveSetting(settingName, ignoreErrors := false) {
     return ""
 }
 
+lockCursorToPixelCoordinates(x, y) {
+    coords := getPixelCoordinates(x, y)
+
+    rect := Buffer(16, 0) ; rect is 4 ints (4 bytes each) = 16 bytes
+
+    NumPut("Int", coords.x, rect, 0)   ; left
+    NumPut("Int", coords.y, rect, 4)   ; top
+    NumPut("Int", coords.x, rect, 8)   ; right
+    NumPut("Int", coords.y, rect, 12)  ; bottom
+
+    DllCall("ClipCursor", "Ptr", rect)
+}
+
+releaseCursor() {
+    DllCall("ClipCursor", "Ptr", 0)
+}
+
 moveToPixelCoordinates(x, y) {
     coords := getPixelCoordinates(x, y)
     ; MouseMove, % coords.x, % coords.y
@@ -413,7 +447,7 @@ getPixelCoordinates(x, y) {
     offsetX := (A_ScreenWidth - widescreenWidth) / 2
     pixelX := offsetX + (widescreenWidth * x)
     pixelY := A_ScreenHeight * y
-    return { x: pixelX, y: pixelY }
+    return { x: Round(pixelX), y: Round(pixelY) }
 }
 
 getPixelCoordinatesReverse(pixelX, pixelY) {
@@ -433,19 +467,15 @@ debugShowMouseCoords() {
 }
 
 startCounting() {
-    frequency := 0
     CounterBefore := 0
-    DllCall("QueryPerformanceFrequency", "Int64P", &frequency)
     DllCall("QueryPerformanceCounter", "Int64P", &CounterBefore)
-    return CounterBefore / frequency
+    return CounterBefore / queryPerformanceFrequency
 }
 
 stopCounting(startTime) {
-    frequency := 0
     CounterAfter := 0
-    DllCall("QueryPerformanceFrequency", "Int64P", &frequency)
     DllCall("QueryPerformanceCounter", "Int64P", &CounterAfter)
-    return (CounterAfter / frequency - startTime) * 1000
+    return (CounterAfter / queryPerformanceFrequency - startTime) * 1000
 }
 
 onChatClose() {
@@ -490,6 +520,9 @@ makeSettings() {
         shouldUseCursor := retrieveSetting("Use cursor in interaction menu for slightly faster macros").value
         interactionKey := retrieveSetting("Interaction menu keybind").value
 
+        if (shouldUseCursor) {
+            lockCursorToPixelCoordinates(0.1175, 0.32075)
+        }
         SendInput("{Blind}{lbutton up}{enter down}")
         Send("{Blind}{" interactionKey "}")
         scrollInDirection("Down", inCEO ? 3 : 2)
@@ -498,12 +531,12 @@ makeSettings() {
             Send("{Blind}{f24 up}")
             SendInput("{Blind}{lbutton down}{enter down}")
             Send("{Blind}{f24 up}")
-            moveToPixelCoordinates(0.1175, 0.32075) ; Exact center of the "Ammo" button on 16:9, interaction menu is wider on ultrawide so it won't be the center but still relatively centered.
             SendInput("{Blind}{lbutton up}")
             Send("{Blind}{enter up}{up down}")
             SendInput("{Blind}{enter down}")
             Send("{Blind}{up up}")
             SendInput("{Blind}{enter up}")
+            releaseCursor()
         } else {
             frameSleep(1)
             scrollInDirection("Down", 5, "{Blind}{enter down}")
@@ -514,7 +547,6 @@ makeSettings() {
             SendInput("{Blind}{enter up}")
         }
         Send("{Blind}{" interactionKey "}")
-        BlockInput("MouseMoveOff")
         accurateSleep(100)
     })
     HotkeyElement("EWO", "", enumTabs["GENERAL"], (*) {
@@ -585,13 +617,13 @@ makeSettings() {
         thisKeybind := retrieveSetting("Chat Spam").value
         chatKeybind := retrieveSetting("Chat keybind (automatically suspend macros when chat open)").value
         ; while (GetKeyState(thisKeybind, "P")) {
-            Send("{Blind}{" chatKeybind " down}")
-            SendInput("{Blind}{enter down}")
-            Send("{Blind}{" chatKeybind " up}")
-            frameSleep(1)
-            SendInput("{Raw}" chatSpamText)
-            Send("{Blind}{enter up}")
-       ; }
+        Send("{Blind}{" chatKeybind " down}")
+        SendInput("{Blind}{enter down}")
+        Send("{Blind}{" chatKeybind " up}")
+        frameSleep(1)
+        SendInput("{Raw}" chatSpamText)
+        Send("{Blind}{enter up}")
+        ; }
     })
     SettingElement("Chat Spam Text", "string", "Ω", enumTabs["GENERAL"])
     HotkeyElement("Fast respawn", "", enumTabs["GENERAL"], (*) {
