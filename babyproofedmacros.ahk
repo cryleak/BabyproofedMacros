@@ -13,9 +13,11 @@ A_MaxHotkeysPerInterval := 99000000
 A_HotkeyInterval := 99000000
 SendMode("Event")
 SetKeyDelay(-1, -1)
+SetKeyDelay(-1, -1, "Play")
 KeyHistory(0)
 ListLines(0)
 SetMouseDelay(-1)
+SetMouseDelay(-1, "Play")
 SetDefaultMouseSpeed(0)
 SetWinDelay(-1)
 SetControlDelay(-1)
@@ -51,6 +53,7 @@ global chatOpen := false
 global activeTab := 1
 global hTimer := DllCall("CreateWaitableTimer", "Ptr", 0, "Int", 0, "Ptr", 0, "Ptr")
 global queryPerformanceFrequency := 0
+global isOnLinux := IsWine()
 DllCall("QueryPerformanceFrequency", "Int64P", &queryPerformanceFrequency)
 Hotkey("~$*Enter", (*) => onChatClose())
 Hotkey("~$*Esc", (*) => onChatClose())
@@ -333,7 +336,7 @@ frameSleep(amount) {
 scrollInDirection(direction, amount, extraInput?) {
     doExtraInput := () { ; Send an extra input if provided by the caller
         if (IsSet(extraInput) && extraInput != "") {
-            SendInput(extraInput)
+            SendInputLinux(extraInput)
             extraInput := ""
         }
     }
@@ -350,7 +353,7 @@ scrollInDirection(direction, amount, extraInput?) {
         Send ("{Blind}{" direction " up}")
 
         if (isCursorHidden()) {
-            SendInput("{Blind}{Wheel" direction "}")
+            Send("{Blind}{Wheel" direction "}")
         } else {
             Send("{Blind}{" direction "}")
         }
@@ -382,6 +385,79 @@ accurateSleep(ms) {
     }
 
     DllCall("WaitForSingleObject", "Ptr", hTimer, "UInt", 0xFFFFFFFF)
+}
+
+setKeyboardHookState(state) {
+    FILE_MAP_ALL_ACCESS := 0xF001F
+    MAP_NAME := "Local\ParagonKeyboardHookDisabler"
+
+    hMapFile := DllCall("OpenFileMapping", "UInt", FILE_MAP_ALL_ACCESS, "Int", 0, "Str", MAP_NAME, "Ptr")
+
+    if (!hMapFile) {
+        return false
+    }
+
+    pSharedSignal := DllCall("MapViewOfFile", "Ptr", hMapFile, "UInt", FILE_MAP_ALL_ACCESS, "UInt", 0, "UInt", 0, "Ptr", 1024, "Ptr")
+    if (!pSharedSignal) {
+        DllCall("CloseHandle", "Ptr", hMapFile)
+        return false 
+    }
+
+    NumPut("Char", !state, pSharedSignal)
+
+    DllCall("UnmapViewOfFile", "Ptr", pSharedSignal)
+    DllCall("CloseHandle", "Ptr", hMapFile)
+    return true
+}
+
+getKeyboardHookState() {
+    FILE_MAP_ALL_ACCESS := 0xF001F
+    MAP_NAME := "Local\ParagonKeyboardHookDisabler"
+
+    hMapFile := DllCall("OpenFileMapping", "UInt", FILE_MAP_ALL_ACCESS, "Int", 0, "Str", MAP_NAME, "Ptr")
+
+    if (!hMapFile) {
+        return false
+    }
+
+    pSharedSignal := DllCall("MapViewOfFile", "Ptr", hMapFile, "UInt", FILE_MAP_ALL_ACCESS, "UInt", 0, "UInt", 0, "Ptr", 1024, "Ptr")
+    if (!pSharedSignal) {
+        DllCall("CloseHandle", "Ptr", hMapFile)
+        return false 
+    }
+
+    state := NumGet(pSharedSignal, "Char")
+
+    DllCall("UnmapViewOfFile", "Ptr", pSharedSignal)
+    DllCall("CloseHandle", "Ptr", hMapFile)
+    return state
+}
+
+SendInputLinux(keys) {
+    if (isOnLinux) {
+        ; setKeyboardHookState(false)
+        Send(keys)
+        ; SetTimer((*) => reinstallHooks(), -50)
+    } else {
+        SendInput(keys)
+    }
+}
+
+reinstallHooks() {
+    InstallKeybdHook(0, 1)
+    InstallKeybdHook(1, 1)
+}
+
+IsWine() {
+    try {
+        if hNtdll := DllCall("GetModuleHandle", "Str", "ntdll.dll", "Ptr") {
+            if pWineVersion := DllCall("GetProcAddress", "Ptr", hNtdll, "AStr", "wine_get_version", "Ptr") {
+                version := DllCall(pWineVersion, "CDecl Str")
+                return version
+            }
+        }
+    }
+    return false
 }
 
 GetControlFromCoordinates(x, y) {
@@ -438,7 +514,9 @@ releaseCursor() {
 moveToPixelCoordinates(x, y) {
     coords := getPixelCoordinates(x, y)
     ; MouseMove, % coords.x, % coords.y
-    DllCall("SetCursorPos", "Int", coords.x, "Int", coords.y)
+    ; DllCall("SetCursorPos", "Int", coords.x, "Int", coords.y)
+    CoordMode("mouse","screen")
+    MouseMove(coords.x, coords.y)
 }
 
 ; Get the coordinates on the main screen for a certain x and y from 0 to 1
@@ -483,7 +561,7 @@ onChatClose() {
 }
 
 isCursorHidden() {
-    return A_Cursor == "Unknown"
+    return false ; A_Cursor == "Unknown"
 }
 
 turnDegrees(degrees) {
@@ -517,35 +595,17 @@ makeSettings() {
 
     SettingElement("Use cursor in interaction menu for slightly faster macros", "bool", false, enumTabs["GENERAL"])
     HotkeyElement("Ammo", "", enumTabs["GENERAL"], (*) {
-        shouldUseCursor := retrieveSetting("Use cursor in interaction menu for slightly faster macros").value
         interactionKey := retrieveSetting("Interaction menu keybind").value
 
-        if (shouldUseCursor) {
-            lockCursorToPixelCoordinates(0.1175, 0.32075)
-        }
-        SendInput("{Blind}{lbutton up}{enter down}")
+        SendInputLinux("{Blind}{lbutton up}{enter down}")
         Send("{Blind}{" interactionKey "}")
         scrollInDirection("Down", inCEO ? 3 : 2)
-        SendInput("{Blind}{enter up}")
-        if (shouldUseCursor) {
-            Send("{Blind}{f24 up}")
-            SendInput("{Blind}{lbutton down}{enter down}")
-            Send("{Blind}{f24 up}")
-            SendInput("{Blind}{lbutton up}")
-            Send("{Blind}{enter up}{up down}")
-            SendInput("{Blind}{enter down}")
-            Send("{Blind}{up up}")
-            SendInput("{Blind}{enter up}")
-            releaseCursor()
-        } else {
-            frameSleep(1)
-            scrollInDirection("Down", 5, "{Blind}{enter down}")
-            SendInput("{Blind}{enter up}")
-            Send("{Blind}{up down}")
-            SendInput("{Blind}{enter down}")
-            Send("{Blind}{up up}")
-            SendInput("{Blind}{enter up}")
-        }
+        SendInputLinux("{Blind}{enter up}")
+        Send("{Blind}{enter down}")
+        scrollInDirection("Down", 5)
+        SendInputLinux("{Blind}{enter up}")
+        Send("{Blind}{up}")
+        SendInputLinux("{Blind}{enter}")
         Send("{Blind}{" interactionKey "}")
         accurateSleep(100)
     })
@@ -558,26 +618,17 @@ makeSettings() {
         ewoDelay := retrieveSetting("EWO delay (ms) (for cleaner looking ragdoll)").value
         shouldShoot := retrieveSetting("Shoot before EWOing").value
 
-        shouldSleep := false
         if (shouldShoot) {
-            SendInput("{Blind}{lbutton down}")
-            shouldSleep := true
+            SendInputLinux("{Blind}{lbutton down}")
         }
         if (GetKeyState(lookBehindKey, "P")) {
-            SendInput("{Blind}{" lookBehindKey " up}")
-            shouldSleep := true
-        }
-        if (shouldSleep) {
-            frameSleep(1)
+            SendInputLinux("{Blind}{" lookBehindKey " up}")
         }
         startTime := startCounting()
-        SendInput("{Blind}{lbutton up}{rbutton up}{w up}{a up}{s up}{d up}{enter down}{up down}{lshift up}{" meleePunchKey " down}{" interactionKey " down}{" lookBehindKey " down}{" sprintKey " up}{" animationKey " down}")
+        SendInputLinux("{Blind}{" lookBehindKey " down}{lbutton up}{rbutton up}{enter down}{up down}{" meleePunchKey " down}{" interactionKey " down}{" animationKey " down}")
 
-        frameSleep(1)
-        SendInput("{Blind}{" animationKey " up}{" interactionKey " up}{" meleePunchKey " up}")
-        frameSleep(1)
-        Send("{Blind}{up up}")
-        Send("{Blind}{up}") ; Not using mousewheel because it breaks a lot for some people or something idk retards dude.
+        SendInputLinux("{Blind}{" animationKey " up}{" interactionKey " up}")
+        Send("{Blind}{WheelUp}") ; Not using mousewheel because it breaks a lot for some people or something idk retards dude.
         if (ewoDelay != "" && ewoDelay > 0) {
             timeDelta := stopCounting(startTime)
             remainingTime := ewoDelay - timeDelta
@@ -587,9 +638,9 @@ makeSettings() {
         }
 
         ; We press animation key twice in case the first one was blocked by the game because the game sometimes disables the key.
-        SendInput("{Blind}{" animationKey " down}{enter up}{" lookBehindKey " up}")
+        SendInputLinux("{Blind}{" animationKey " down}{enter up}{" lookBehindKey " up}")
         frameSleep(2)
-        SendInput("{Blind}{" animationKey " up}{up up}")
+        SendInputLinux("{Blind}{" animationKey " up}{up up}{ " meleePunchKey " up}")
         SetCapsLockState("Off")
     })
     SettingElement("EWO delay (ms) (for cleaner looking ragdoll)", "string", "0", enumTabs["GENERAL"])
@@ -598,15 +649,15 @@ makeSettings() {
     HotkeyElement("Toggle CEO", "", enumTabs["GENERAL"], (*) {
         interactionKey := retrieveSetting("Interaction menu keybind").value
 
-        SendInput("{Blind}{enter down}")
+        SendInputLinux("{Blind}{enter down}")
         if (inCEO) {
             Send("{Blind}{" interactionKey "}{enter up}{up down}")
-            SendInput("{Blind}{enter down}")
+            SendInputLinux("{Blind}{enter down}")
             Send("{Blind}{up up}{enter up}")
         } else {
             Send("{Blind}{" interactionKey "}")
             scrollInDirection("Down", 6)
-            SendInput("{Blind}{enter up}")
+            SendInputLinux("{Blind}{enter up}")
             Send("{Blind}{enter}")
         }
         global inCEO := !inCEO
@@ -616,21 +667,18 @@ makeSettings() {
         chatSpamText := retrieveSetting("Chat Spam Text").value
         thisKeybind := retrieveSetting("Chat Spam").value
         chatKeybind := retrieveSetting("Chat keybind (automatically suspend macros when chat open)").value
-        ; while (GetKeyState(thisKeybind, "P")) {
-        Send("{Blind}{" chatKeybind " down}")
-        SendInput("{Blind}{enter down}")
-        Send("{Blind}{" chatKeybind " up}")
-        frameSleep(1)
-        SendInput("{Raw}" chatSpamText)
-        Send("{Blind}{enter up}")
-        ; }
+        while (GetKeyState(thisKeybind, "P")) {
+        Send("{Blind}{" chatKeybind "}")
+        SendStringByMessage(chatSpamText)
+        Send("{Blind}{enter}")
+        }
     })
     SettingElement("Chat Spam Text", "string", "Ω", enumTabs["GENERAL"])
     HotkeyElement("Fast respawn", "", enumTabs["GENERAL"], (*) {
         loop 30 {
-            SendInput("{Blind}{lbutton down}")
+            SendInputLinux("{Blind}{lbutton down}")
             frameSleep(1)
-            SendInput("{Blind}{lbutton up}")
+            SendInputLinux("{Blind}{lbutton up}")
             frameSleep(1)
         }
     })
@@ -642,9 +690,8 @@ makeSettings() {
 
     quickSwitchMethod := (keybind, *) {
         weaponKey := retrieveSetting(keybind).value
-        Send("{Blind}{" weaponKey " down}{tab down}")
-        SendInput("{Blind}{" weaponKey " up}")
-        Send("{Blind}{tab up}")
+        Send("{Blind}{" weaponKey " down}{tab}")
+        Send("{Blind}{" weaponKey " up}")
     }
     HotkeyElement("Sniper rifle tab switch", "", enumTabs["WEAPONSWITCH"], (*) => quickSwitchMethod("Sniper rifle keybind"))
     HotkeyElement("Heavy weapon tab switch", "", enumTabs["WEAPONSWITCH"], (*) => quickSwitchMethod("Heavy weapon keybind"))
@@ -660,15 +707,86 @@ makeSettings() {
         stickyBombKey := retrieveSetting("Sticky bomb keybind").value
         Send("{Blind}{" stickyBombKey " down}")
         frameSleep(2)
-        Send("{Blind}{" heavyWeaponKey " down}{tab down}")
-        SendInput("{Blind}{" heavyWeaponKey " up}{" stickyBombKey " up}")
-        Send("{Blind}{tab up}")
+        Send("{Blind}{" heavyWeaponKey " down}{tab}")
+        SendInputLinux("{Blind}{" heavyWeaponKey " up}{" stickyBombKey " up}")
     })
     HotkeyElement("Sniper Spam", "", enumTabs["WEAPONSWITCH"], (*) {
         sniperRifleKey := retrieveSetting("Sniper rifle keybind").value
         stickyBombKey := retrieveSetting("Sticky bomb keybind").value
-        Send("{Blind}{" stickyBombKey " down}{" sniperRifleKey " down}{tab down}")
-        SendInput("{Blind}{" sniperRifleKey " up}{" stickyBombKey " up}")
-        Send("{Blind}{tab up}")
+        Send("{Blind}{" stickyBombKey " down}{" sniperRifleKey " down}{tab}")
+        SendInputLinux("{Blind}{" sniperRifleKey " up}{" stickyBombKey " up}")
     })
+    HotkeyElement("Double heavy switch","", enumTabs["WEAPONSWITCH"], (*) {
+        heavyWeaponKey := retrieveSetting("Heavy weapon keybind").value
+        Send("{Blind}{" heavyWeaponKey "}{" heavyWeaponKey " down}{tab}{" heavyWeaponKey " up}")
+    })
+}
+
+SendString(text) {
+    ; --- Constants from WinUser.h ---
+    static INPUT_KEYBOARD := 1
+    static KEYEVENTF_UNICODE := 0x0004
+    static KEYEVENTF_KEYUP   := 0x0002
+    
+    ; --- Structure Sizing & Offsets ---
+    ; The INPUT structure is larger on x64 due to alignment padding.
+    ; x64: type(4) + pad(4) + union(32) = 40 bytes
+    ; x86: type(4) + union(24) = 28 bytes
+    cbSize := (A_PtrSize == 8) ? 40 : 28
+    
+    ; Offsets within the KEYBOARDINPUT union
+    ; x64: wVk is at offset 8, wScan at 10, dwFlags at 12
+    ; x86: wVk is at offset 4, wScan at 6, dwFlags at 8
+    off_wScan   := (A_PtrSize == 8) ? 10 : 6
+    off_dwFlags := (A_PtrSize == 8) ? 12 : 8
+    
+    ; --- buffer Creation ---
+    ; We need 2 events (Down + Up) per character
+    inputCount := StrLen(text) * 2
+    inputs := Buffer(inputCount * cbSize, 0) ; Initialize with 0
+    
+    ; --- Fill the Buffer ---
+    loop parse text {
+        char := Ord(A_LoopField) ; Get Unicode value
+        i := A_Index - 1
+        
+        ; 1. Key Down Event
+        baseOffset := (i * 2) * cbSize
+        NumPut("UInt",   INPUT_KEYBOARD,    inputs, baseOffset)
+        NumPut("UShort", char,              inputs, baseOffset + off_wScan)
+        NumPut("UInt",   KEYEVENTF_UNICODE, inputs, baseOffset + off_dwFlags)
+        
+        ; 2. Key Up Event
+        baseOffset := (i * 2 + 1) * cbSize
+        NumPut("UInt",   INPUT_KEYBOARD,    inputs, baseOffset)
+        NumPut("UShort", char,              inputs, baseOffset + off_wScan)
+        ; Combine flags: UNICODE | KEYUP
+        NumPut("UInt",   KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, inputs, baseOffset + off_dwFlags)
+    }
+    
+    ; --- DllCall ---
+    ; UINT SendInput(UINT cInputs, LPINPUT pInputs, int cbSize)
+    DllCall("SendInput", "UInt", inputCount, "Ptr", inputs, "Int", cbSize)
+}
+
+SendStringByMessage(text) {
+    ; WM_CHAR = 0x0102
+    ; PostMessage places the message in the queue and returns immediately.
+    ; This bypasses the LowLevelKeyboardHook because that hook monitors
+    ; the hardware input stream, not the application message queue.
+    
+    hwnd := DllCall("GetForegroundWindow", "Ptr")
+    if !hwnd
+        return
+
+    loop parse text {
+        char := Ord(A_LoopField)
+        
+        ; PostMessageW(hWnd, Msg, wParam, lParam)
+        ; wParam = The character code (Unicode)
+        ; lParam = 1 (Repeat count, etc. - usually 1 or 0 is fine for simple text)
+        DllCall("PostMessage", "Ptr", hwnd, "UInt", 0x0102, "Ptr", char, "Ptr", 1)
+        
+        ; Optional: Small sleep to prevent message queue flooding if string is huge
+    }
 }
