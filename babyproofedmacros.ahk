@@ -175,7 +175,7 @@ class SettingsManager {
 
     _mouseClickHandler(*) {
         MouseGetPos(, , , &controlNN, 2)
-        if (!controlNN) { ; Why can't i reference "this" here????
+        if (!controlNN) {
             this.clicksOnThisControl := 0
             return
         } else if (this.controlLastClicked != controlNN) {
@@ -367,14 +367,9 @@ scrollInDirection(direction, amount, extraInput?) {
 accurateSleep(ms) {
     ; DllCall("Sleep", "UInt", ms)
 
-    ; DllCall("ntdll\ZwDelayExecution", "Int", 0, "Int64*", -(ms * 10000))
-
     ; lets you sleep in 0.5ms intervals instead of 1ms
     dueTime := Buffer(8, 0)
     NumPut("Int64", -(ms * 10000), dueTime, 0)
-
-    start := Buffer(8, 0)
-    DllCall("QueryPerformanceCounter", "Ptr", start)
 
     if (!DllCall("SetWaitableTimer", "Ptr", hTimer, "Ptr", dueTime, "Int", 0, "Ptr", 0, "Ptr", 0, "Int", 0)) {
         throw Error("Failed to set waitable timer for some reason")
@@ -491,6 +486,20 @@ turnDegrees(degrees) {
     scalar := GetKeyState("RButton", "P") ? (322 / 180) : (263 / 180) ; Different sensitivy for when aiming down sights. Won't work if you zoom in with sniper scope though. Measurements done at 4K resolution.
     pixelsPerDegree := scalar / (3840 / A_ScreenWidth) ; Empirical value for converting degrees to pixels with raw input mode and lowest in-game sensitivity.
     MouseMove(-(degrees * pixelsPerDegree), 0, 0)
+}
+
+SendStringByMessage(text) {
+
+    hwnd := DllCall("GetForegroundWindow", "Ptr")
+    if (!hwnd) {
+        return
+    }
+
+    loop parse text {
+        char := Ord(A_LoopField)
+
+        DllCall("PostMessage", "Ptr", hwnd, "UInt", 0x0102, "Ptr", char, "Ptr", 1)
+    }
 }
 
 ; I decided to put this in the bottom of the file because it'll be really long.
@@ -616,14 +625,11 @@ makeSettings() {
         chatSpamText := retrieveSetting("Chat Spam Text").value
         thisKeybind := retrieveSetting("Chat Spam").value
         chatKeybind := retrieveSetting("Chat keybind (automatically suspend macros when chat open)").value
-        ; while (GetKeyState(thisKeybind, "P")) {
-        Send("{Blind}{" chatKeybind " down}")
-        SendInput("{Blind}{enter down}")
-        Send("{Blind}{" chatKeybind " up}")
-        frameSleep(1)
-        SendInput("{Raw}" chatSpamText)
-        Send("{Blind}{enter up}")
-        ; }
+        while (GetKeyState(thisKeybind, "P")) {
+        Send("{Blind}{" chatKeybind "}")
+        SendStringByMessage(chatSpamText)
+        Send("{Blind}{enter}")
+        }
     })
     SettingElement("Chat Spam Text", "string", "Ω", enumTabs["GENERAL"])
     HotkeyElement("Fast respawn", "", enumTabs["GENERAL"], (*) {
