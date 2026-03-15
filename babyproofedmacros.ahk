@@ -44,7 +44,7 @@ global controlOverMouse := ""
 global DPIScale := 1 ; A_ScreenDPI / 96
 global yOffset := 35 * DPIScale
 global textOffset := 20 * DPIScale
-global elementOffset := (textOffset + 300) * DPIScale
+global elementOffset := (textOffset + 400) * DPIScale
 global settingYOffset := 20 * DPIScale
 global inCEO := false
 global chatOpen := false
@@ -489,7 +489,6 @@ turnDegrees(degrees) {
 }
 
 SendStringByMessage(text) {
-
     hwnd := DllCall("GetForegroundWindow", "Ptr")
     if (!hwnd) {
         return
@@ -564,45 +563,59 @@ makeSettings() {
         meleePunchKey := retrieveSetting("Melee punch keybind").value
         lookBehindKey := retrieveSetting("Look behind keybind").value
         sprintKey := retrieveSetting("Sprint keybind").value
-        ewoDelay := retrieveSetting("EWO delay (ms) (for cleaner looking ragdoll)").value
-        shouldShoot := retrieveSetting("Shoot before EWOing").value
+        useExperimentalEwo := retrieveSetting("Use experimental EWO macro (slower and can't be customized)").value
+        if (useExperimentalEwo) {
+            SetMouseDelay(1)
+            BlockInput("On")
+            Send("{Blind}{lbutton down}")
+            SendInput("{Blind}{s up}{" lookBehindKey " down}{enter down}{a up}{" interactionKey " down}{" sprintKey " up}{lshift up}{w up}{rbutton up}{up down}{" meleePunchKey " down}{lbutton up}{d up}{tab up}")
+            Send("{Blind}{" interactionKey " up}{up up}{up}{" animationKey "}{up}")
+            SendInput("{enter up}")
+            Send("{" lookBehindKey " Up}{" meleePunchKey " Up}")
+            BlockInput("Off")
+            SetMouseDelay(-1)
+        } else {
+            ewoDelay := retrieveSetting("EWO delay (ms) (for cleaner looking ragdoll)").value
+            shouldShoot := retrieveSetting("Shoot before EWOing").value
 
-        shouldSleep := false
-        if (shouldShoot) {
-            SendInput("{Blind}{lbutton down}")
-            shouldSleep := true
-        }
-        if (GetKeyState(lookBehindKey, "P")) {
-            SendInput("{Blind}{" lookBehindKey " up}")
-            shouldSleep := true
-        }
-        if (shouldSleep) {
-            frameSleep(1)
-        }
-        startTime := startCounting()
-        SendInput("{Blind}{lbutton up}{rbutton up}{w up}{a up}{s up}{d up}{enter down}{up down}{lshift up}{" meleePunchKey " down}{" interactionKey " down}{" lookBehindKey " down}{" sprintKey " up}{" animationKey " down}")
-
-        frameSleep(1)
-        SendInput("{Blind}{" animationKey " up}{" interactionKey " up}{" meleePunchKey " up}")
-        frameSleep(1)
-        Send("{Blind}{up up}")
-        Send("{Blind}{up}") ; Not using mousewheel because it breaks a lot for some people or something idk retards dude.
-        if (ewoDelay != "" && ewoDelay > 0) {
-            timeDelta := stopCounting(startTime)
-            remainingTime := ewoDelay - timeDelta
-            if (remainingTime > 0) {
-                accurateSleep(Ceil(remainingTime))
+            shouldSleep := false
+            if (shouldShoot) {
+                SendInput("{Blind}{lbutton down}")
+                shouldSleep := true
             }
-        }
+            if (GetKeyState(lookBehindKey, "P")) {
+                SendInput("{Blind}{" lookBehindKey " up}")
+                shouldSleep := true
+            }
+            if (shouldSleep) {
+                frameSleep(1)
+            }
+            startTime := startCounting()
+            SendInput("{Blind}{lbutton up}{rbutton up}{w up}{a up}{s up}{d up}{enter down}{up down}{lshift up}{" meleePunchKey " down}{" interactionKey " down}{" lookBehindKey " down}{" sprintKey " up}{" animationKey " down}")
 
-        ; We press animation key twice in case the first one was blocked by the game because the game sometimes disables the key.
-        SendInput("{Blind}{" animationKey " down}{enter up}{" lookBehindKey " up}")
-        frameSleep(2)
-        SendInput("{Blind}{" animationKey " up}{up up}")
+            frameSleep(1)
+            SendInput("{Blind}{" animationKey " up}{" interactionKey " up}{" meleePunchKey " up}")
+            frameSleep(1)
+            Send("{Blind}{up up}")
+            Send("{Blind}{up}") ; Not using mousewheel because it breaks a lot for some people or something idk retards dude.
+            if (ewoDelay != "" && ewoDelay > 0) {
+                timeDelta := stopCounting(startTime)
+                remainingTime := ewoDelay - timeDelta
+                if (remainingTime > 0) {
+                    accurateSleep(Ceil(remainingTime))
+                }
+            }
+
+            ; We press animation key twice in case the first one was blocked by the game because the game sometimes disables the key.
+            SendInput("{Blind}{" animationKey " down}{enter up}{" lookBehindKey " up}")
+            frameSleep(2)
+            SendInput("{Blind}{" animationKey " up}{up up}")
+        }
         SetCapsLockState("Off")
     })
     SettingElement("EWO delay (ms) (for cleaner looking ragdoll)", "string", "0", enumTabs["GENERAL"])
     SettingElement("Shoot before EWOing", "bool", false, enumTabs["GENERAL"])
+    SettingElement("Use experimental EWO macro (slower and can't be customized)", "bool", false, enumTabs["GENERAL"])
 
     HotkeyElement("Toggle CEO", "", enumTabs["GENERAL"], (*) {
         interactionKey := retrieveSetting("Interaction menu keybind").value
@@ -626,9 +639,9 @@ makeSettings() {
         thisKeybind := retrieveSetting("Chat Spam").value
         chatKeybind := retrieveSetting("Chat keybind (automatically suspend macros when chat open)").value
         while (GetKeyState(thisKeybind, "P")) {
-        Send("{Blind}{" chatKeybind "}")
-        SendStringByMessage(chatSpamText)
-        Send("{Blind}{enter}")
+            Send("{Blind}{" chatKeybind "}")
+            SendStringByMessage(chatSpamText)
+            Send("{Blind}{enter}")
         }
     })
     SettingElement("Chat Spam Text", "string", "Ω", enumTabs["GENERAL"])
