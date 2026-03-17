@@ -1,4 +1,5 @@
-﻿;@Ahk2Exe-AddResource *24 input.manifest, 1
+﻿global macroVersion := "1.0.0"
+;@Ahk2Exe-AddResource *24 input.manifest, 1
 #Requires AutoHotkey v2.1-alpha.18
 #SingleInstance Force
 #Warn All, Off
@@ -54,6 +55,8 @@ global queryPerformanceFrequency := 0
 DllCall("QueryPerformanceFrequency", "Int64P", &queryPerformanceFrequency)
 Hotkey("~$*Enter", (*) => onChatClose())
 Hotkey("~$*Esc", (*) => onChatClose())
+
+doVersionCheck()
 
 global settingsManagerInstance := SettingsManager()
 
@@ -319,6 +322,41 @@ class HotkeyElement extends SettingElement {
         }
         this.oldValue := this.value
         this.saveValue()
+    }
+}
+
+doVersionCheck() {
+    url := "https://raw.githubusercontent.com/cryleak/BabyproofedMacros/refs/heads/main/babyproofedmacros.ahk"
+
+    try {
+        whr := ComObject("WinHttp.WinHttpRequest.5.1")
+        whr.Open("GET", url, true)
+        whr.Send()
+
+        if !whr.WaitForResponse(5) {
+            throw Error("No response received from version check request.")
+        }
+
+        responseText := whr.ResponseText
+
+        firstLine := StrSplit(responseText, "`n")[1]
+
+        if RegExMatch(firstLine, '"([\d\.]+)"', &match) {
+            version := match[1]
+            if (VerCompare(version, macroVersion) > 0) {
+                MsgBox("A new version of Babyproofed Macros is available! Please download it from the GitHub page. `nCurrent version: " . macroVersion . "`nLatest version: " . version)
+            }
+            /*
+            else {
+                MsgBox("Detected Version: " . version)
+            }
+            */
+        } else {
+            throw Error("Version couldn't be parsed.")
+        }
+
+    } catch Error as err {
+        MsgBox("Version check failed. Please check for updates manually. `nError: " . err.Message)
     }
 }
 
