@@ -1,4 +1,4 @@
-﻿global macroVersion := "1.0.0"
+﻿global macroVersion := "1.0.1"
 ;@Ahk2Exe-AddResource *24 input.manifest, 1
 #Requires AutoHotkey v2.1-alpha.18
 #SingleInstance Force
@@ -59,6 +59,7 @@ Hotkey("~$*Esc", (*) => onChatClose())
 doVersionCheck()
 
 global settingsManagerInstance := SettingsManager()
+global spamManagerInstance := SpamManager()
 
 class SettingsManager {
     __New() {
@@ -229,13 +230,14 @@ class SettingsManager {
 }
 
 class SettingElement {
-    __New(name, type, defaultValue, tab) {
+    __New(name, type, defaultValue, tab, onChange := "") {
         this.name := name
         this.type := type
         this.defaultValue := defaultValue
         this.value := this.getValue()
         this.oldValue := this.value
         this.tab := tab
+        this.onChange := onChange
         settings[tab].Push(this)
         this.saveValue()
     }
@@ -251,6 +253,9 @@ class SettingElement {
     handleUpdate(guiCtrl, *) {
         this.oldValue := this.value
         this.value := guiCtrl.Value
+        if (this.onChange != "") {
+            this.onChange(this.value, this.oldValue, guiCtrl)
+        }
         ; ToolTip("Setting Updated: " this.name " = " this.value)
         ; SetTimer(() => ToolTip(), -500)
     }
@@ -269,9 +274,9 @@ class HotkeyElement extends SettingElement {
     register() {
         if (this.value != "" && this.macroExec != "") {
             try {
-                HotIfWinActive "ahk_class grcWindow"
+                HotIfWinActive("ahk_class grcWindow")
                 Hotkey("*$" this.value, ObjBindMethod(this, "performHotkey"), "On")
-                HotIfWinActive
+                HotIfWinActive()
             } catch as err {
                 MsgBox("Could not register hotkey: " this.value "`nError: " err.Message)
             }
@@ -306,16 +311,16 @@ class HotkeyElement extends SettingElement {
             return
         }
         if (this.oldValue != "" && this.macroExec != "") {
-            HotIfWinActive "ahk_class grcWindow"
+            HotIfWinActive("ahk_class grcWindow")
             Hotkey("*$" this.oldValue, "Off")
-            HotIfWinActive
+            HotIfWinActive()
         }
 
         if (this.value != "" && this.macroExec != "") {
             try {
-                HotIfWinActive "ahk_class grcWindow"
+                HotIfWinActive("ahk_class grcWindow")
                 Hotkey("*$" this.value, ObjBindMethod(this, "performHotkey"), "On")
-                HotIfWinActive
+                HotIfWinActive()
             } catch {
                 throw UnsetError("Could not register hotkey: " this.value)
             }
@@ -502,13 +507,13 @@ debugShowMouseCoords() {
 startCounting() {
     CounterBefore := 0
     DllCall("QueryPerformanceCounter", "Int64P", &CounterBefore)
-    return CounterBefore / queryPerformanceFrequency
+    return (CounterBefore / queryPerformanceFrequency) * 1000
 }
 
 stopCounting(startTime) {
     CounterAfter := 0
     DllCall("QueryPerformanceCounter", "Int64P", &CounterAfter)
-    return (CounterAfter / queryPerformanceFrequency - startTime) * 1000
+    return (CounterAfter * 1000 / queryPerformanceFrequency - startTime)
 }
 
 onChatClose() {
@@ -526,20 +531,29 @@ turnDegrees(degrees) {
     MouseMove(-(degrees * pixelsPerDegree), 0, 0)
 }
 
-SendStringByMessage(text) {
+convertToCharArray(text) {
+    charArray := []
+    loop parse text {
+        charArray.Push(Ord(A_LoopField))
+    }
+    return charArray
+}
+
+SendStringByMessage(charArray) {
     hwnd := DllCall("GetForegroundWindow", "Ptr")
     if (!hwnd) {
         return
     }
 
-    loop parse text {
-        char := Ord(A_LoopField)
-
+    for char in charArray {
         DllCall("PostMessage", "Ptr", hwnd, "UInt", 0x0102, "Ptr", char, "Ptr", 1)
     }
 }
 
-; I decided to put this in the bottom of the file because it'll be really long.
+getLButtonCacheState() {
+    return GetKeyState("LButton", "P") && retrieveSetting("Preserve left click state").value
+}
+
 makeSettings() {
     HotkeyElement("Sniper rifle keybind", "9", enumTabs["KEYBINDS"])
     HotkeyElement("Heavy weapon keybind", "4", enumTabs["KEYBINDS"])
@@ -562,9 +576,12 @@ makeSettings() {
     HotkeyElement("Sprint keybind", "lshift", enumTabs["KEYBINDS"])
 
     SettingElement("Use cursor in interaction menu for slightly faster macros", "bool", false, enumTabs["GENERAL"])
+    SettingElement("Preserve left click state", "bool", false, enumTabs["GENERAL"])
     HotkeyElement("Ammo", "", enumTabs["GENERAL"], (*) {
         shouldUseCursor := retrieveSetting("Use cursor in interaction menu for slightly faster macros").value
         interactionKey := retrieveSetting("Interaction menu keybind").value
+
+        lButtonState := getLButtonCacheState()
 
         if (shouldUseCursor) {
             lockCursorToPixelCoordinates(0.1175, 0.32075)
@@ -593,6 +610,9 @@ makeSettings() {
             SendInput("{Blind}{enter up}")
         }
         Send("{Blind}{" interactionKey "}")
+        if (lButtonState) {
+            SendInput("{Blind}{lbutton down}")
+        }
         accurateSleep(100)
     })
     HotkeyElement("EWO", "", enumTabs["GENERAL"], (*) {
@@ -631,23 +651,24 @@ makeSettings() {
             startTime := startCounting()
             SendInput("{Blind}{lbutton up}{rbutton up}{w up}{a up}{s up}{d up}{enter down}{up down}{lshift up}{" meleePunchKey " down}{" interactionKey " down}{" lookBehindKey " down}{" sprintKey " up}{" animationKey " down}")
 
-            frameSleep(1)
-            SendInput("{Blind}{" animationKey " up}{" interactionKey " up}{" meleePunchKey " up}")
-            frameSleep(1)
-            Send("{Blind}{up up}")
-            Send("{Blind}{up}") ; Not using mousewheel because it breaks a lot for some people or something idk retards dude.
+            Send("{Blind}{" interactionKey " up}{" animationKey " up}{up up}")
+            if (isCursorHidden()) {
+                SendInput("{Blind}{WheelUp}")
+            } else {
+                Send("{Blind}{up}")
+            }
             if (ewoDelay != "" && ewoDelay > 0) {
                 timeDelta := stopCounting(startTime)
                 remainingTime := ewoDelay - timeDelta
-                if (remainingTime > 0) {
-                    accurateSleep(Ceil(remainingTime))
+                if (remainingTime >= 0.5) {
+                    accurateSleep(Round(remainingTime * 2) / 2)
                 }
             }
 
             ; We press animation key twice in case the first one was blocked by the game because the game sometimes disables the key.
-            SendInput("{Blind}{" animationKey " down}{enter up}{" lookBehindKey " up}")
+            SendInput("{Blind}{" animationKey " down}{enter up}")
             frameSleep(2)
-            SendInput("{Blind}{" animationKey " up}{up up}")
+            SendInput("{Blind}{" animationKey " up}{up up}{" lookBehindKey " up}{" meleePunchKey " up}")
         }
         SetCapsLockState("Off")
     })
@@ -658,7 +679,9 @@ makeSettings() {
     HotkeyElement("Toggle CEO", "", enumTabs["GENERAL"], (*) {
         interactionKey := retrieveSetting("Interaction menu keybind").value
 
-        SendInput("{Blind}{enter down}")
+        lButtonState := getLButtonCacheState()
+
+        SendInput("{Blind}{lbutton up}{enter down}")
         if (inCEO) {
             Send("{Blind}{" interactionKey "}{enter up}{up down}")
             SendInput("{Blind}{enter down}")
@@ -669,6 +692,9 @@ makeSettings() {
             SendInput("{Blind}{enter up}")
             Send("{Blind}{enter}")
         }
+        if (lButtonState) {
+            SendInput("{Blind}{lbutton down}")
+        }
         global inCEO := !inCEO
     })
 
@@ -676,10 +702,13 @@ makeSettings() {
         chatSpamText := retrieveSetting("Chat Spam Text").value
         thisKeybind := retrieveSetting("Chat Spam").value
         chatKeybind := retrieveSetting("Chat keybind (automatically suspend macros when chat open)").value
+        charArray := convertToCharArray(chatSpamText)
         while (GetKeyState(thisKeybind, "P")) {
-            Send("{Blind}{" chatKeybind "}")
-            SendStringByMessage(chatSpamText)
-            Send("{Blind}{enter}")
+            Send("{Blind}{" chatKeybind " down}{enter down}")
+            SendInput("{Blind}{" chatKeybind " up}")
+            frameSleep(1)
+            SendStringByMessage(charArray)
+            Send("{Blind}{enter up}")
         }
     })
     SettingElement("Chat Spam Text", "string", "Ω", enumTabs["GENERAL"])
@@ -696,9 +725,36 @@ makeSettings() {
         turnDegrees(degrees)
     })
     SettingElement("Degrees to turn", "string", "180", enumTabs["GENERAL"])
+    HotkeyElement("BST", "", enumTabs["GENERAL"], (*) {
+        if (!inCEO) {
+            coordinates := getPixelCoordinates(0.5, 0.5)
+            ToolTip("You're not in a CEO silly", coordinates.x, coordinates.y)
+            SetTimer(() => ToolTip(), -1000)
+            return
+        }
+        interactionMenuKey := retrieveSetting("Interaction menu keybind").value
+        lButtonState := getLButtonCacheState()
+
+        SendInput("{Blind}{lbutton up}{enter down}")
+
+        Send("{Blind}{" interactionMenuKey "}{enter up}")
+        scrollInDirection("Down", 4, "{Blind}{enter down}")
+        Send("{Blind}{enter up}{down down}")
+        SendInput("{Blind}{enter down}")
+        Send("{Blind}{down up}")
+        SendInput("{Blind}{enter up}")
+        if (lButtonState) {
+            SendInput("{Blind}{lbutton down}")
+        }
+    })
 
     quickSwitchMethod := (keybind, *) {
         weaponKey := retrieveSetting(keybind).value
+        useAutomatedSpam := retrieveSetting("Use fully automated spam (extremely buggy)").value
+        if (useAutomatedSpam && spamManagerInstance.isSpamming()) {
+            spamManagerInstance.queueSpam(weaponKey, false)
+            return
+        }
         Send("{Blind}{" weaponKey " down}{tab down}")
         SendInput("{Blind}{" weaponKey " up}")
         Send("{Blind}{tab up}")
@@ -728,4 +784,100 @@ makeSettings() {
         SendInput("{Blind}{" sniperRifleKey " up}{" stickyBombKey " up}")
         Send("{Blind}{tab up}")
     })
+    SettingElement("Use fully automated spam (extremely buggy)", "bool", false, enumTabs["WEAPONSWITCH"], (newValue, oldValue, *) {
+        if (oldValue == newValue) {
+            return
+        }
+        if (newValue) {
+            SetTimer(ObjBindMethod(spamManagerInstance, "runLoop"), 1, -2147483648)
+        } else {
+            SetTimer(ObjBindMethod(spamManagerInstance, "runLoop"), 0)
+        }
+    })
+    SettingElement("Automated spam handles left click (buggy)", "bool", false, enumTabs["WEAPONSWITCH"])
+    SettingElement("Queue double switching", "bool", false, enumTabs["WEAPONSWITCH"])
+    HotkeyElement("Automated RPG Spam", "", enumTabs["WEAPONSWITCH"])
+    HotkeyElement("Double switch", "", enumTabs["WEAPONSWITCH"], (*) {
+        heavyWeaponKey := retrieveSetting("Heavy weapon keybind").value
+        useAutomatedSpam := retrieveSetting("Use fully automated spam (extremely buggy)").value
+        if (useAutomatedSpam && spamManagerInstance.isSpamming()) {
+            spamManagerInstance.queueSpam(heavyWeaponKey, false, 2)
+            return
+        }
+        Send("{Blind}{" heavyWeaponKey "}{" heavyWeaponKey " down}{tab down}")
+        SendInput("{Blind}{" heavyWeaponKey " up}")
+        Send("{Blind}{tab up}")
+    })
+}
+
+class SpamManager {
+    __New() {
+        this.timeUntilSwapAvailable := startCounting()
+        this.spamDelay := 550
+        this.quickSwitchDelay := 430
+        this.customSwaps := []
+        this.queuedThisShot := 0
+        if (retrieveSetting("Use fully automated spam (extremely buggy)").value) {
+            SetTimer(ObjBindMethod(this, "runLoop"), 1, -2147483648)
+        }
+    }
+
+    queueSpam(weaponKey, swapToSticky, amount := 1) {
+        ToolTip("Queued" startCounting(), 1, 1)
+        if (this.customSwaps.Length && this.customSwaps[1].keyPresses <= 1 && this.customSwaps[1].weaponKey == weaponKey && this.customSwaps[1].swapToSticky == swapToSticky && retrieveSetting("Queue double switching").value) {
+            this.customSwaps[1].keyPresses += 1
+            return
+        }
+        this.lastQueue := startCounting()
+        this.customSwaps.Push({ weaponKey: weaponKey, swapToSticky: swapToSticky, keyPresses: amount })
+    }
+
+    runLoop() {
+        if (stopCounting(this.timeUntilSwapAvailable) < 0 || !WinActive("ahk_class grcWindow")) {
+            return
+        }
+        stickyBombKey := retrieveSetting("Sticky bomb keybind").value
+        heavyWeaponKey := retrieveSetting("Heavy weapon keybind").value
+        automatedSpamKey := retrieveSetting("Automated RPG Spam", true).value
+        if (!automatedSpamKey) {
+            return
+        }
+        shouldHandleLButton := retrieveSetting("Automated spam handles left click (buggy)").value
+        if (GetKeyState(automatedSpamKey, "P")) {
+            action := this.customSwaps.Length ? this.customSwaps.RemoveAt(1) : { weaponKey: heavyWeaponKey, swapToSticky: true, keyPresses: 1 }
+            lbuttonState := GetKeyState("LButton", "P") && shouldHandleLButton
+            if (action.swapToSticky) {
+                Send("{Blind}{" stickyBombKey " down}")
+            } else if (lbuttonState) {
+                SendInput("{Blind}{lbutton up}")
+            }
+
+            if (action.keyPresses > 1) {
+                loop action.keyPresses - 1 {
+                    Send("{Blind}{" action.weaponKey "}")
+                }
+            }
+            Send("{Blind}{" action.weaponKey " down}{tab}")
+            SendInput("{Blind}{" action.weaponKey " up}{" stickyBombKey " up}")
+            this.timeUntilSwapAvailable := startCounting() + (action.swapToSticky ? this.spamDelay : this.quickSwitchDelay)
+            if (lbuttonState) {
+                SendInput("{Blind}{lbutton down}")
+                if (action.keyPresses > 1) {
+                    accurateSleep(50)
+                }
+            }
+            Sleep(-1)
+            return
+        } else {
+            this.customSwaps := []
+        }
+    }
+
+    isSpamming() {
+        keybind := retrieveSetting("Automated RPG Spam", true).value
+        if (!keybind) {
+            return false
+        }
+        return GetKeyState(keybind, "P")
+    }
 }
