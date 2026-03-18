@@ -1,4 +1,4 @@
-﻿global macroVersion := "1.0.1.1"
+﻿global macroVersion := "1.0.1.2"
 ;@Ahk2Exe-AddResource *24 input.manifest, 1
 #Requires AutoHotkey v2.1-alpha.18
 #SingleInstance Force
@@ -60,7 +60,6 @@ doVersionCheck()
 
 global settingsManagerInstance := SettingsManager()
 global spamManagerInstance := SpamManager()
-global keyDisablerInstance := KeyDisabler()
 
 class SettingsManager {
     __New() {
@@ -643,7 +642,7 @@ makeSettings() {
                 shouldSleep := true
             }
             if (GetKeyState(lookBehindKey, "P")) {
-                keyDisablerInstance.disableKey(lookBehindKey)
+                KeyDisabler.disableKey(lookBehindKey)
                 SendInput("{Blind}{" lookBehindKey " up}")
                 shouldSleep := true
             }
@@ -671,7 +670,7 @@ makeSettings() {
             SendInput("{Blind}{" animationKey " down}{enter up}")
             frameSleep(2)
             SendInput("{Blind}{" animationKey " up}{up up}{" lookBehindKey " up}{" meleePunchKey " up}")
-            keyDisablerInstance.enableKey(lookBehindKey)
+            KeyDisabler.enableKey(lookBehindKey)
         }
         SetCapsLockState("Off")
     })
@@ -886,34 +885,38 @@ class SpamManager {
 }
 
 class KeyDisabler {
-    __new() {
-        this.disabledKeys := []
-    }
+    static disabledKeys := []
 
-    enableAllKeys() {
+    static enableAllKeys() {
         for key in this.disabledKeys {
+            HotIfWinActive("ahk_class grcWindow")
             Hotkey("*$" key, "Off")
+            HotIfWinActive()
         }
         this.disabledKeys := []
     }
 
-    disableKey(key) {
+    static disableKey(key) {
         for disabledKey in this.disabledKeys {
             if (disabledKey == key) {
                 return
             }
         }
-        if (Hotkey("*$" key, (*) {
+        HotIfWinActive("ahk_class grcWindow")
+        Hotkey("*$" key, (*) {
             ; Nothing
-        }, "On")) {
-            this.disabledKeys.Push(key)
-        }
+        }, "On")
+        HotIfWinActive()
+        this.disabledKeys.Push(key)
+
     }
 
-    enableKey(key) {
+    static enableKey(key) {
         for index, disabledKey in this.disabledKeys {
             if (disabledKey == key) {
+                HotIfWinActive("ahk_class grcWindow")
                 Hotkey("*$" key, "Off")
+                HotIfWinActive()
                 this.disabledKeys.RemoveAt(index)
                 return
             }
