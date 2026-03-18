@@ -1,11 +1,11 @@
-﻿global macroVersion := "1.0.1"
+﻿global macroVersion := "1.0.1.1"
 ;@Ahk2Exe-AddResource *24 input.manifest, 1
 #Requires AutoHotkey v2.1-alpha.18
 #SingleInstance Force
 #Warn All, Off
 #UseHook true
-InstallKeybdHook()
-InstallMouseHook()
+InstallKeybdHook(1, 1)
+InstallMouseHook(1, 1)
 
 #MaxThreadsPerHotkey 1
 #MaxThreads 255
@@ -60,6 +60,7 @@ doVersionCheck()
 
 global settingsManagerInstance := SettingsManager()
 global spamManagerInstance := SpamManager()
+global keyDisablerInstance := KeyDisabler()
 
 class SettingsManager {
     __New() {
@@ -642,6 +643,7 @@ makeSettings() {
                 shouldSleep := true
             }
             if (GetKeyState(lookBehindKey, "P")) {
+                keyDisablerInstance.disableKey(lookBehindKey)
                 SendInput("{Blind}{" lookBehindKey " up}")
                 shouldSleep := true
             }
@@ -669,6 +671,7 @@ makeSettings() {
             SendInput("{Blind}{" animationKey " down}{enter up}")
             frameSleep(2)
             SendInput("{Blind}{" animationKey " up}{up up}{" lookBehindKey " up}{" meleePunchKey " up}")
+            keyDisablerInstance.enableKey(lookBehindKey)
         }
         SetCapsLockState("Off")
     })
@@ -879,5 +882,41 @@ class SpamManager {
             return false
         }
         return GetKeyState(keybind, "P")
+    }
+}
+
+class KeyDisabler {
+    __new() {
+        this.disabledKeys := []
+    }
+
+    enableAllKeys() {
+        for key in this.disabledKeys {
+            Hotkey("*$" key, "Off")
+        }
+        this.disabledKeys := []
+    }
+
+    disableKey(key) {
+        for disabledKey in this.disabledKeys {
+            if (disabledKey == key) {
+                return
+            }
+        }
+        if (Hotkey("*$" key, (*) {
+            ; Nothing
+        }, "On")) {
+            this.disabledKeys.Push(key)
+        }
+    }
+
+    enableKey(key) {
+        for index, disabledKey in this.disabledKeys {
+            if (disabledKey == key) {
+                Hotkey("*$" key, "Off")
+                this.disabledKeys.RemoveAt(index)
+                return
+            }
+        }
     }
 }
