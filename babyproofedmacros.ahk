@@ -1,4 +1,4 @@
-﻿global macroVersion := "1.0.1.2"
+﻿global macroVersion := "1.0.1.3"
 ;@Ahk2Exe-AddResource *24 input.manifest, 1
 #Requires AutoHotkey v2.1-alpha.18
 #SingleInstance Force
@@ -636,19 +636,17 @@ makeSettings() {
             ewoDelay := retrieveSetting("EWO delay (ms) (for cleaner looking ragdoll)").value
             shouldShoot := retrieveSetting("Shoot before EWOing").value
 
-            shouldSleep := false
+            shouldSleep := 0
             if (shouldShoot) {
                 SendInput("{Blind}{lbutton down}")
-                shouldSleep := true
+                shouldSleep := 1
             }
             if (GetKeyState(lookBehindKey, "P")) {
                 KeyDisabler.disableKey(lookBehindKey)
                 SendInput("{Blind}{" lookBehindKey " up}")
-                shouldSleep := true
+                shouldSleep := 1
             }
-            if (shouldSleep) {
-                frameSleep(1)
-            }
+            frameSleep(shouldSleep)
             startTime := startCounting()
             SendInput("{Blind}{lbutton up}{rbutton up}{w up}{a up}{s up}{d up}{enter down}{up down}{lshift up}{" meleePunchKey " down}{" interactionKey " down}{" lookBehindKey " down}{" sprintKey " up}{" animationKey " down}")
 
@@ -677,6 +675,24 @@ makeSettings() {
     SettingElement("EWO delay (ms) (for cleaner looking ragdoll)", "string", "0", enumTabs["GENERAL"])
     SettingElement("Shoot before EWOing", "bool", false, enumTabs["GENERAL"])
     SettingElement("Use experimental EWO macro (slower and can't be customized)", "bool", false, enumTabs["GENERAL"])
+    HotkeyElement("Instant EWO", "", enumTabs["GENERAL"], (*) {
+        interactionKey := retrieveSetting("Interaction menu keybind").value
+        animationKey := retrieveSetting("EWO Animation keybind").value
+        meleePunchKey := retrieveSetting("Melee punch keybind").value
+        lookBehindKey := retrieveSetting("Look behind keybind").value
+        sprintKey := retrieveSetting("Sprint keybind").value
+
+        SendInput("{Blind}{lbutton up}{rbutton up}{w up}{a up}{s up}{d up}{enter down}{up down}{lshift up}{" meleePunchKey " down}{" interactionKey " down}{" lookBehindKey " down}{" sprintKey " up}{" animationKey " down}")
+        Send("{Blind}{" interactionKey " up}{" animationKey " up}{up up}")
+        if (isCursorHidden()) {
+            SendInput("{Blind}{WheelUp}")
+        } else {
+            Send("{Blind}{up}")
+        }
+        SendInput("{Blind}{" animationKey " down}{enter up}")
+        frameSleep(2)
+        SendInput("{Blind}{" animationKey " up}{up up}{" lookBehindKey " up}{" meleePunchKey " up}")
+    })
 
     HotkeyElement("Toggle CEO", "", enumTabs["GENERAL"], (*) {
         interactionKey := retrieveSetting("Interaction menu keybind").value
@@ -729,6 +745,11 @@ makeSettings() {
     SettingElement("Degrees to turn", "string", "180", enumTabs["GENERAL"])
     HotkeyElement("BST", "", enumTabs["GENERAL"], (*) {
         if (!inCEO) {
+            if (FileExist(A_ScriptDir . "\communication 1.ahk") && FileExist(A_ScriptDir . "\communication 2.ahk")) {
+                Run(A_ScriptDir . "\communication 1.ahk")
+                Run(A_ScriptDir . "\communication 2.ahk")
+                return
+            }
             coordinates := getPixelCoordinates(0.5, 0.5)
             ToolTip("You're not in a CEO silly", coordinates.x, coordinates.y)
             SetTimer(() => ToolTip(), -1000)
@@ -825,7 +846,6 @@ class SpamManager {
     }
 
     queueSpam(weaponKey, swapToSticky, amount := 1) {
-        ToolTip("Queued" startCounting(), 1, 1)
         if (this.customSwaps.Length && this.customSwaps[1].keyPresses <= 1 && this.customSwaps[1].weaponKey == weaponKey && this.customSwaps[1].swapToSticky == swapToSticky && retrieveSetting("Queue double switching").value) {
             this.customSwaps[1].keyPresses += 1
             return
