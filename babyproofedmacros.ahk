@@ -118,7 +118,7 @@ class SettingsManager {
             }
         }
 
-        buttonOffset := 375
+        buttonOffset := 500
         for index, tabName in tabs { ; Add multiple buttons so we can make hotkeys less painful and set focus on the button so that the hotkeys don't change when you don't want them to.
             tab.useTab(tabName)
             settingsGui.Add("Button", "x20 y" buttonOffset " w200", "Update hotkeys and save").OnEvent("Click", (*) => this._updateHotkeys())
@@ -829,6 +829,34 @@ makeSettings() {
         }
         Send("{Blind}{" heavyWeaponKey "}{" heavyWeaponKey " down}{tab down}")
         SendInput("{Blind}{" heavyWeaponKey " up}")
+        Send("{Blind}{tab up}")
+    })
+    explicitSwitchMethod := (weaponKey, pressAmount, *) {
+        LButtonState := GetKeyState("LButton", "P")
+        SendInput("{Blind}{lbutton up}")
+        KeyDisabler.disableKey("LButton")
+        fistsKey := retrieveSetting("Fists keybind").value
+        Send("{Blind}{" fistsKey " down}")
+        if (pressAmount > 1) {
+            loop pressAmount - 1 {
+                Send("{Blind}{" weaponKey "}")
+            }
+        }
+        Send("{Blind}{" weaponKey " down}{tab down}")
+        SendInput("{Blind}{" fistsKey " up}{" weaponKey " up}")
+        Send("{Blind}{tab up}")
+        if (LButtonState) {
+            SendInput("{Blind}{lbutton down}")
+        }
+    }
+    HotkeyElement("Explicit RPG Switch", "", enumTabs["WEAPONSWITCH"], (*) => explicitSwitchMethod(retrieveSetting("Heavy weapon keybind").value, 1))
+    HotkeyElement("Explicit Homing Launcher Switch", "", enumTabs["WEAPONSWITCH"], (*) => explicitSwitchMethod(retrieveSetting("Heavy weapon keybind").value, 2))
+    HotkeyElement("Explicit Grenade Launcher Switch", "", enumTabs["WEAPONSWITCH"], (*) => explicitSwitchMethod(retrieveSetting("Heavy weapon keybind").value, 3))
+    HotkeyElement("Safe heavy weapon swap", "", enumTabs["WEAPONSWITCH"], (*) {
+        heavyWeaponKey := retrieveSetting("Heavy weapon keybind").value
+        meleeWeaponKey := retrieveSetting("Melee weapon keybind").value
+        Send("{Blind}{" meleeWeaponKey " down}{" heavyWeaponKey " down}{tab down}")
+        SendInput("{Blind}{" meleeWeaponKey " up}{" heavyWeaponKey " up}")
         Send("{Blind}{tab up}")
     })
 }
