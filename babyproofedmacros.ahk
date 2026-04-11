@@ -761,7 +761,8 @@ makeSettings() {
     })
     SettingElement("Chat Spam Text", "string", "Ω", enumTabs["GENERAL"])
     HotkeyElement("Fast respawn", "", enumTabs["GENERAL"], (*) {
-        loop 17 {
+        thisKeybind := retrieveSetting("Fast respawn").value
+        while (GetKeyState(thisKeybind, "P")) {
             SendInput("{Blind}{lbutton down}")
             frameSleep(1)
             SendInput("{Blind}{lbutton up}")
