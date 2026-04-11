@@ -52,6 +52,10 @@ global chatOpen := false
 global activeTab := 1
 global hTimer := DllCall("CreateWaitableTimer", "Ptr", 0, "Int", 0, "Ptr", 0, "Ptr")
 global queryPerformanceFrequency := 0
+global coutObj := unset
+global macroExecutionStart := 0
+global macroExecutionTime := 0
+global lastMacroExecutionTime := 0
 DllCall("QueryPerformanceFrequency", "Int64P", &queryPerformanceFrequency)
 Hotkey("~$*Enter", (*) => onChatClose())
 Hotkey("~$*Esc", (*) => onChatClose())
@@ -290,7 +294,14 @@ class HotkeyElement extends SettingElement {
             return
         }
         try {
+            global macroExecutionStart := startCounting()
             this.macroExec()
+            global macroExecutionTime
+            if (retrieveSetting("Enable macro speed profiling (only useful for developers)").value && macroExecutionTime != 0) {
+                cout("Macro " this.name " took " Round(macroExecutionTime, 2) " ms to execute. Last macro was executed " Round(stopCounting(lastMacroExecutionTime), 2) " ms ago.")
+                macroExecutionTime := 0
+                global lastMacroExecutionTime := startCounting()
+            }
         } catch as err {
             BlockInput("Off")
             BlockInput("MouseMoveOff")
@@ -554,6 +565,21 @@ getLButtonCacheState() {
     return GetKeyState("LButton", "P") && retrieveSetting("Preserve left click state").value
 }
 
+cacheLastMacroExecutionTime() {
+    global macroExecutionTime := stopCounting(macroExecutionStart)
+}
+
+cout(text) {
+    if (!IsSet(coutObj)) {
+        if (FileExist(A_ScriptDir "\BabyProofedMacros.log")) {
+            FileDelete(A_ScriptDir "\BabyProofedMacros.log")
+        }
+        global coutObj := FileOpen(A_ScriptDir "\BabyProofedMacros.log", "a", "UTF-8")
+    }
+    coutObj.WriteLine(text)
+    coutObj.Read(0)
+}
+
 makeSettings() {
     HotkeyElement("Sniper rifle keybind", "9", enumTabs["KEYBINDS"])
     HotkeyElement("Heavy weapon keybind", "4", enumTabs["KEYBINDS"])
@@ -609,6 +635,7 @@ makeSettings() {
             Send("{Blind}{up up}")
             SendInput("{Blind}{enter up}")
         }
+        cacheLastMacroExecutionTime()
         Send("{Blind}{" interactionKey "}")
         if (lButtonState) {
             SendInput("{Blind}{lbutton down}")
@@ -629,6 +656,7 @@ makeSettings() {
             SendInput("{Blind}{s up}{" lookBehindKey " down}{enter down}{a up}{" interactionKey " down}{" sprintKey " up}{lshift up}{w up}{rbutton up}{up down}{" meleePunchKey " down}{lbutton up}{d up}{tab up}")
             Send("{Blind}{" interactionKey " up}{up up}{up}{" animationKey "}{up}")
             SendInput("{enter up}")
+            cacheLastMacroExecutionTime()
             Send("{" lookBehindKey " Up}{" meleePunchKey " Up}")
             BlockInput("Off")
             SetMouseDelay(-1)
@@ -666,6 +694,7 @@ makeSettings() {
 
             ; We press animation key twice in case the first one was blocked by the game because the game sometimes disables the key.
             SendInput("{Blind}{" animationKey " down}{enter up}")
+            cacheLastMacroExecutionTime()
             frameSleep(2)
             SendInput("{Blind}{" animationKey " up}{up up}{" lookBehindKey " up}{" meleePunchKey " up}")
             KeyDisabler.enableKey(lookBehindKey)
@@ -690,6 +719,7 @@ makeSettings() {
             Send("{Blind}{up}")
         }
         SendInput("{Blind}{" animationKey " down}{enter up}")
+        cacheLastMacroExecutionTime()
         frameSleep(2)
         SendInput("{Blind}{" animationKey " up}{up up}{" lookBehindKey " up}{" meleePunchKey " up}")
     })
@@ -731,12 +761,13 @@ makeSettings() {
     })
     SettingElement("Chat Spam Text", "string", "Ω", enumTabs["GENERAL"])
     HotkeyElement("Fast respawn", "", enumTabs["GENERAL"], (*) {
-        loop 30 {
+        loop 17 {
             SendInput("{Blind}{lbutton down}")
             frameSleep(1)
             SendInput("{Blind}{lbutton up}")
             frameSleep(1)
         }
+        cacheLastMacroExecutionTime()
     })
     HotkeyElement("Quick turn keybind", "", enumTabs["GENERAL"], (*) {
         degrees := retrieveSetting("Degrees to turn").value
@@ -769,7 +800,9 @@ makeSettings() {
         if (lButtonState) {
             SendInput("{Blind}{lbutton down}")
         }
+        cacheLastMacroExecutionTime()
     })
+    SettingElement("Enable macro speed profiling (only useful for developers)", "bool", false, enumTabs["GENERAL"])
 
     quickSwitchMethod := (keybind, *) {
         weaponKey := retrieveSetting(keybind).value
@@ -781,6 +814,7 @@ makeSettings() {
         Send("{Blind}{" weaponKey " down}{tab down}")
         SendInput("{Blind}{" weaponKey " up}")
         Send("{Blind}{tab up}")
+        cacheLastMacroExecutionTime()
     }
     HotkeyElement("Sniper rifle tab switch", "", enumTabs["WEAPONSWITCH"], (*) => quickSwitchMethod("Sniper rifle keybind"))
     HotkeyElement("Heavy weapon tab switch", "", enumTabs["WEAPONSWITCH"], (*) => quickSwitchMethod("Heavy weapon keybind"))
@@ -799,6 +833,7 @@ makeSettings() {
         Send("{Blind}{" heavyWeaponKey " down}{tab down}")
         SendInput("{Blind}{" heavyWeaponKey " up}{" stickyBombKey " up}")
         Send("{Blind}{tab up}")
+        cacheLastMacroExecutionTime()
     })
     HotkeyElement("Sniper Spam", "", enumTabs["WEAPONSWITCH"], (*) {
         sniperRifleKey := retrieveSetting("Sniper rifle keybind").value
@@ -806,6 +841,7 @@ makeSettings() {
         Send("{Blind}{" stickyBombKey " down}{" sniperRifleKey " down}{tab down}")
         SendInput("{Blind}{" sniperRifleKey " up}{" stickyBombKey " up}")
         Send("{Blind}{tab up}")
+        cacheLastMacroExecutionTime()
     })
     SettingElement("Use fully automated spam (extremely buggy)", "bool", false, enumTabs["WEAPONSWITCH"], (newValue, oldValue, *) {
         if (oldValue == newValue) {
@@ -830,6 +866,7 @@ makeSettings() {
         Send("{Blind}{" heavyWeaponKey "}{" heavyWeaponKey " down}{tab down}")
         SendInput("{Blind}{" heavyWeaponKey " up}")
         Send("{Blind}{tab up}")
+        cacheLastMacroExecutionTime()
     })
     explicitSwitchMethod := (weaponKey, pressAmount, *) {
         LButtonState := GetKeyState("LButton", "P")
@@ -848,6 +885,7 @@ makeSettings() {
         if (LButtonState) {
             SendInput("{Blind}{lbutton down}")
         }
+        cacheLastMacroExecutionTime()
     }
     HotkeyElement("Explicit RPG Switch", "", enumTabs["WEAPONSWITCH"], (*) => explicitSwitchMethod(retrieveSetting("Heavy weapon keybind").value, 1))
     HotkeyElement("Explicit Homing Launcher Switch", "", enumTabs["WEAPONSWITCH"], (*) => explicitSwitchMethod(retrieveSetting("Heavy weapon keybind").value, 2))
@@ -858,6 +896,7 @@ makeSettings() {
         Send("{Blind}{" meleeWeaponKey " down}{" heavyWeaponKey " down}{tab down}")
         SendInput("{Blind}{" meleeWeaponKey " up}{" heavyWeaponKey " up}")
         Send("{Blind}{tab up}")
+        cacheLastMacroExecutionTime()
     })
 }
 
