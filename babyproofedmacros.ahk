@@ -1,4 +1,4 @@
-﻿global macroVersion := "1.0.1.3"
+﻿global macroVersion := "1.0.2"
 ;@Ahk2Exe-AddResource *24 input.manifest, 1
 #Requires AutoHotkey v2.1-alpha.18
 #SingleInstance Force
@@ -383,12 +383,23 @@ frameSleep(amount) {
     }
 }
 
-; Uses a combination of the scroll wheel and the arrow keys to scroll faster, you can scroll twice in 3 frames with this instead of 4.
+; Uses a combination of the scroll wheel and the arrow keys to scroll faster, you can scroll twice in 2 frames with this instead of 4.
 scrollInDirection(direction, amount, extraInput?) {
     doExtraInput := () { ; Send an extra input if provided by the caller
         if (IsSet(extraInput) && extraInput != "") {
             SendInput(extraInput)
             extraInput := ""
+        }
+    }
+
+    sendWheelInput := (sleepBefore) {
+        if (isCursorHidden()) {
+            if (sleepBefore) {
+                frameSleep(1)
+            }
+            SendInput("{Blind}{Wheel" direction "}")
+        } else {
+            Send("{Blind}{" direction "}")
         }
     }
 
@@ -401,20 +412,12 @@ scrollInDirection(direction, amount, extraInput?) {
     loop Floor(amount / 2) {
         Send("{Blind}{" direction " down}")
         doExtraInput()
-        Send ("{Blind}{" direction " up}")
-
-        if (isCursorHidden()) {
-            SendInput("{Blind}{Wheel" direction "}")
-        } else {
-            Send("{Blind}{" direction "}")
-        }
-        if (amount >= 3) {
-            frameSleep(1)
-        }
+        sendWheelInput(false)
+        Send("{Blind}{" direction " up}")
     }
 
     if (amount & 1) {
-        Send("{Blind}{" direction "}")
+        sendWheelInput(true)
     }
 }
 
@@ -600,7 +603,7 @@ makeSettings() {
         global chatOpen := true
     })
     HotkeyElement("Sprint keybind", "lshift", enumTabs["KEYBINDS"])
-
+    
     SettingElement("Use cursor in interaction menu for slightly faster macros", "bool", false, enumTabs["GENERAL"])
     SettingElement("Preserve left click state", "bool", false, enumTabs["GENERAL"])
     HotkeyElement("Ammo", "", enumTabs["GENERAL"], (*) {
@@ -617,23 +620,22 @@ makeSettings() {
         scrollInDirection("Down", inCEO ? 3 : 2)
         SendInput("{Blind}{enter up}")
         if (shouldUseCursor) {
-            Send("{Blind}{f24 up}")
+            frameSleep(1)
             SendInput("{Blind}{lbutton down}{enter down}")
-            Send("{Blind}{f24 up}")
+            frameSleep(1)
             SendInput("{Blind}{lbutton up}")
-            Send("{Blind}{enter up}{up down}")
-            SendInput("{Blind}{enter down}")
-            Send("{Blind}{up up}")
-            SendInput("{Blind}{enter up}")
+            Send("{Blind}{enter up}")
+            frameSleep(1)
+            SendInput("{Blind}{WheelUp}{enter down}")
+            Send("{Blind}{enter up}")
             releaseCursor()
         } else {
             frameSleep(1)
             scrollInDirection("Down", 5, "{Blind}{enter down}")
             SendInput("{Blind}{enter up}")
-            Send("{Blind}{up down}")
-            SendInput("{Blind}{enter down}")
-            Send("{Blind}{up up}")
-            SendInput("{Blind}{enter up}")
+            frameSleep(1)
+            SendInput("{Blind}{enter down}{WheelUp}")
+            Send("{Blind}{enter up}")
         }
         cacheLastMacroExecutionTime()
         Send("{Blind}{" interactionKey "}")
@@ -794,10 +796,10 @@ makeSettings() {
 
         Send("{Blind}{" interactionMenuKey "}{enter up}")
         scrollInDirection("Down", 4, "{Blind}{enter down}")
-        Send("{Blind}{enter up}{down down}")
-        SendInput("{Blind}{enter down}")
-        Send("{Blind}{down up}")
         SendInput("{Blind}{enter up}")
+        frameSleep(1)
+        SendInput("{Blind}{WheelDown}{enter down}")
+        Send("{Blind}{enter up}")
         if (lButtonState) {
             SendInput("{Blind}{lbutton down}")
         }
