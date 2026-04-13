@@ -1,4 +1,4 @@
-﻿global macroVersion := "1.0.2"
+﻿global macroVersion := "1.0.2.1"
 ;@Ahk2Exe-AddResource *24 input.manifest, 1
 #Requires AutoHotkey v2.1-alpha.18
 #SingleInstance Force
@@ -392,32 +392,39 @@ scrollInDirection(direction, amount, extraInput?) {
         }
     }
 
-    sendWheelInput := (sleepBefore) {
-        if (isCursorHidden()) {
-            if (sleepBefore) {
-                frameSleep(1)
-            }
+    cursorHidden := isCursorHidden()
+
+    if (amount == 1) {
+        if (cursorHidden) {
+            frameSleep(1)
             SendInput("{Blind}{Wheel" direction "}")
         } else {
             Send("{Blind}{" direction "}")
         }
-    }
-
-    if (amount == 1) {
-        Send("{Blind}{" direction "}")
         doExtraInput()
         return
     }
 
     loop Floor(amount / 2) {
-        Send("{Blind}{" direction " down}")
-        doExtraInput()
-        sendWheelInput(false)
-        Send("{Blind}{" direction " up}")
+        if (cursorHidden) {
+            Send("{Blind}{" direction " down}")
+            doExtraInput()
+            SendInput("{Blind}{Wheel" direction "}")
+            Send("{Blind}{" direction " up}")
+        } else {
+            Send("{Blind}{" direction "}")
+            doExtraInput()
+            Send("{Blind}{" direction "}")
+        }
     }
 
     if (amount & 1) {
-        sendWheelInput(true)
+        if (cursorHidden) {
+            frameSleep(1)
+            SendInput("{Blind}{Wheel" direction "}")
+        } else {
+            Send("{Blind}{" direction "}")
+        }
     }
 }
 
@@ -603,7 +610,7 @@ makeSettings() {
         global chatOpen := true
     })
     HotkeyElement("Sprint keybind", "lshift", enumTabs["KEYBINDS"])
-    
+
     SettingElement("Use cursor in interaction menu for slightly faster macros", "bool", false, enumTabs["GENERAL"])
     SettingElement("Preserve left click state", "bool", false, enumTabs["GENERAL"])
     HotkeyElement("Ammo", "", enumTabs["GENERAL"], (*) {
@@ -655,8 +662,9 @@ makeSettings() {
             SetMouseDelay(1)
             BlockInput("On")
             Send("{Blind}{lbutton down}")
-            SendInput("{Blind}{s up}{" lookBehindKey " down}{enter down}{a up}{" interactionKey " down}{" sprintKey " up}{lshift up}{w up}{rbutton up}{up down}{" meleePunchKey " down}{lbutton up}{d up}{tab up}")
-            Send("{Blind}{" interactionKey " up}{up up}{up}{" animationKey "}{up}")
+            SendInput("{Blind}{s up}{" lookBehindKey " down}{enter down}{a up}{" interactionKey " down}{" sprintKey " up}{lshift up}{w up}{rbutton up}{" meleePunchKey " down}{lbutton up}{d up}{tab up}")
+            Send("{Blind}{" interactionKey " up}{up}{up}{" animationKey "}")
+            frameSleep(1)
             SendInput("{enter up}")
             cacheLastMacroExecutionTime()
             Send("{" lookBehindKey " Up}{" meleePunchKey " Up}")
@@ -678,13 +686,15 @@ makeSettings() {
             }
             frameSleep(shouldSleep)
             startTime := startCounting()
-            SendInput("{Blind}{lbutton up}{rbutton up}{w up}{a up}{s up}{d up}{enter down}{up down}{lshift up}{" meleePunchKey " down}{" interactionKey " down}{" lookBehindKey " down}{" sprintKey " up}{" animationKey " down}")
+            SendInput("{Blind}{lbutton up}{rbutton up}{w up}{a up}{s up}{d up}{enter down}{lshift up}{" meleePunchKey " down}{" interactionKey " down}{" lookBehindKey " down}{" sprintKey " up}{" animationKey " down}")
 
-            Send("{Blind}{" interactionKey " up}{" animationKey " up}{up up}")
+            Send("{Blind}{" interactionKey " up}{up down}")
+            SendInput("{Blind}{" animationKey " up}")
+            Send("{Blind}{up up}")
             if (isCursorHidden()) {
                 SendInput("{Blind}{WheelUp}")
             } else {
-                Send("{Blind}{up}")
+                Send("{Blind}{up down}")
             }
             if (ewoDelay != "" && ewoDelay > 0) {
                 timeDelta := stopCounting(startTime)
