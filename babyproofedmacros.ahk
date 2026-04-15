@@ -1,4 +1,4 @@
-﻿global macroVersion := "1.0.2.1"
+﻿global macroVersion := "1.0.3"
 ;@Ahk2Exe-AddResource *24 input.manifest, 1
 #Requires AutoHotkey v2.1-alpha.18
 #SingleInstance Force
@@ -56,6 +56,8 @@ global coutObj := unset
 global macroExecutionStart := 0
 global macroExecutionTime := 0
 global lastMacroExecutionTime := 0
+global sendInputTextElements := []
+global lastTabSwitchData := { weaponKey: "", time: 0 }
 DllCall("QueryPerformanceFrequency", "Int64P", &queryPerformanceFrequency)
 Hotkey("~$*Enter", (*) => onChatClose())
 Hotkey("~$*Esc", (*) => onChatClose())
@@ -127,6 +129,7 @@ class SettingsManager {
             tab.useTab(tabName)
             settingsGui.Add("Button", "x20 y" buttonOffset " w200", "Update hotkeys and save").OnEvent("Click", (*) => this._updateHotkeys())
             settingsGui.Add("Button", "x20 y" buttonOffset + yOffset " w200", "Hide this fucking bullshit GUI " index).OnEvent("Click", (*) => settingsGui.Hide())
+            sendInputTextElements.Push(settingsGui.Add("Text", "x24 w400 y" buttonOffset + yOffset * 2, "SendInput: N/A"))
         }
         settingsGui.Show()
         if (InStr(A_ScriptName, ".ahk")) {
@@ -152,6 +155,29 @@ class SettingsManager {
                 this._removeMouseHook()
             }
         }, 100)
+
+        SetTimer((*) {
+            if (WinActive("ahk_class grcWindow")) {
+                this._updateSendInputState()
+            }
+        }, 1000)
+    }
+
+    _updateSendInputState() { ; Informational text to show if SendInput is working properly or not
+        start := startCounting()
+        SendInput("{Blind}{f24 2}")
+        /*
+        Low level keyboard hooks can be hooked in a specific order that causes every individual input in a SendInput stream to take an entire game frame to execute, making SendInput the same speed as SendEvent.
+        This is impossible to fix without removing the offending keyboard hook (practically impossible since hooks are private for the application that created it only, unless you want to create something resembling an antivirus...
+        or create a list of known offending applications and DLL inject into them, which is absurdly complicated and unstable).
+        If SendInput is failing, you need to figure out what application is installing a low level keyboard hook other than AutoHotkey and GTA and close the application.
+        You could likely fix this by forking Wine, but that's only for Linux only obviously.
+        TLDR: Windows API is fucking stupid.
+        */
+        end := stopCounting(start)
+        for textElement in sendInputTextElements {
+            textElement.Value := "SendInput: " . (end < 5 ? "WORKING" : "FAILING (MACROS WILL BE SLOWER)") ; This check could technically be inaccurate if you have more than ~800 FPS... welp, guess I'll have to improve it when the Ryzen 7 12800X3D comes out.
+        }
     }
 
     _addMouseHook() {
@@ -590,6 +616,22 @@ cout(text) {
     coutObj.Read(0)
 }
 
+unpressHorizontalMovementKeys() {
+    SendInput("{Blind}{a up}{d up}")
+}
+
+repressHorizontalMovementKeys() {
+    accurateSleep(100)
+    KeyDisabler.enableKey("a")
+    KeyDisabler.enableKey("d")
+    if (GetKeyState("a", "P")) {
+        SendInput("{Blind}{a down}")
+    }
+    if (GetKeyState("d", "P")) {
+        SendInput("{Blind}{d down}")
+    }
+}
+
 makeSettings() {
     HotkeyElement("Sniper rifle keybind", "9", enumTabs["KEYBINDS"])
     HotkeyElement("Heavy weapon keybind", "4", enumTabs["KEYBINDS"])
@@ -723,15 +765,18 @@ makeSettings() {
         lookBehindKey := retrieveSetting("Look behind keybind").value
         sprintKey := retrieveSetting("Sprint keybind").value
 
-        SendInput("{Blind}{lbutton up}{rbutton up}{w up}{a up}{s up}{d up}{enter down}{up down}{lshift up}{" meleePunchKey " down}{" interactionKey " down}{" lookBehindKey " down}{" sprintKey " up}{" animationKey " down}")
-        Send("{Blind}{" interactionKey " up}{" animationKey " up}{up up}")
+        SendInput("{Blind}{lbutton up}{rbutton up}{w up}{a up}{s up}{d up}{enter down}{lshift up}{" meleePunchKey " down}{" interactionKey " down}{" lookBehindKey " down}{" sprintKey " up}{" animationKey " down}")
+        Send("{Blind}{" interactionKey " up}")
+        SendInput("{Blind}{" animationKey " up}")
+        Send("{Blind}{up down}")
         if (isCursorHidden()) {
             SendInput("{Blind}{WheelUp}")
         } else {
-            Send("{Blind}{up}")
+            Send("{Blind}{up up}{up down}")
         }
         SendInput("{Blind}{" animationKey " down}{enter up}")
         cacheLastMacroExecutionTime()
+        Send("{Blind}{enter}") ; If we had to look back then we needed to wait another frame
         frameSleep(2)
         SendInput("{Blind}{" animationKey " up}{up up}{" lookBehindKey " up}{" meleePunchKey " up}")
     })
@@ -824,9 +869,19 @@ makeSettings() {
             spamManagerInstance.queueSpam(weaponKey, false)
             return
         }
+        c4Keybind := retrieveSetting("Sticky bomb keybind").value
+        heavyWeaponKey := retrieveSetting("Heavy weapon keybind").value
+        automaticLButtonHandling := retrieveSetting("Automatic left click handling (buggy)").value && (lastTabSwitchData.weaponKey != c4Keybind || stopCounting(lastTabSwitchData.time) > 300)
+        if (automaticLButtonHandling) {
+            SendInput("{Blind}{lbutton up}")
+        }
         Send("{Blind}{" weaponKey " down}{tab down}")
         SendInput("{Blind}{" weaponKey " up}")
         Send("{Blind}{tab up}")
+        if (GetKeyState("LButton", "P") && automaticLButtonHandling) {
+            SendInput("{Blind}{lbutton down}")
+        }
+        global lastTabSwitchData := { time: startCounting(), weaponKey: weaponKey }
         cacheLastMacroExecutionTime()
     }
     HotkeyElement("Sniper rifle tab switch", "", enumTabs["WEAPONSWITCH"], (*) => quickSwitchMethod("Sniper rifle keybind"))
@@ -866,7 +921,7 @@ makeSettings() {
             SetTimer(ObjBindMethod(spamManagerInstance, "runLoop"), 0)
         }
     })
-    SettingElement("Automated spam handles left click (buggy)", "bool", false, enumTabs["WEAPONSWITCH"])
+    SettingElement("Automatic left click handling (buggy)", "bool", false, enumTabs["WEAPONSWITCH"])
     SettingElement("Queue double switching", "bool", false, enumTabs["WEAPONSWITCH"])
     HotkeyElement("Automated RPG Spam", "", enumTabs["WEAPONSWITCH"])
     HotkeyElement("Double switch", "", enumTabs["WEAPONSWITCH"], (*) {
@@ -876,9 +931,20 @@ makeSettings() {
             spamManagerInstance.queueSpam(heavyWeaponKey, false, 2)
             return
         }
-        Send("{Blind}{" heavyWeaponKey "}{" heavyWeaponKey " down}{tab down}")
+        c4Keybind := retrieveSetting("Sticky bomb keybind").value
+        automaticLButtonHandling := retrieveSetting("Automatic left click handling (buggy)").value && (lastTabSwitchData.weaponKey != c4Keybind || stopCounting(lastTabSwitchData.time) > 300)
+        Send("{Blind}{" heavyWeaponKey "}")
+        Send("{Blind}{" heavyWeaponKey " down}")
+        if (automaticLButtonHandling) {
+            SendInput("{Blind}{lbutton up}")
+        }
+        Send("{Blind}{tab down}")
         SendInput("{Blind}{" heavyWeaponKey " up}")
         Send("{Blind}{tab up}")
+
+        if (GetKeyState("LButton", "P") && automaticLButtonHandling) {
+            SendInput("{Blind}{lbutton down}")
+        }
         cacheLastMacroExecutionTime()
     })
     explicitSwitchMethod := (weaponKey, pressAmount, *) {
@@ -944,7 +1010,7 @@ class SpamManager {
         if (!automatedSpamKey) {
             return
         }
-        shouldHandleLButton := retrieveSetting("Automated spam handles left click (buggy)").value
+        shouldHandleLButton := retrieveSetting("Automatic left click handling (buggy)").value
         if (GetKeyState(automatedSpamKey, "P")) {
             action := this.customSwaps.Length ? this.customSwaps.RemoveAt(1) : { weaponKey: heavyWeaponKey, swapToSticky: true, keyPresses: 1 }
             lbuttonState := GetKeyState("LButton", "P") && shouldHandleLButton
