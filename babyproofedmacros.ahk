@@ -1,4 +1,4 @@
-﻿global macroVersion := "1.0.3"
+﻿global macroVersion := "1.0.3.1"
 ;@Ahk2Exe-AddResource *24 input.manifest, 1
 #Requires AutoHotkey v2.1-alpha.18
 #SingleInstance Force
@@ -32,14 +32,14 @@ if !DirExist(targetDir)
 SetWorkingDir(targetDir)
 
 global settings := Map()
-global enumTabs := Map(
-    "GENERAL", "General Macros",
-    "WEAPONSWITCH", "Weapon switching Macros",
-    "KEYBINDS", "In-game keybinds"
-)
-global tabs := []
-for key, value in enumTabs {
-    tabs.Push(value)
+global tabs := {
+    GENERAL: "General Macros",
+    WEAPONSWITCH: "Weapon switching Macros",
+    KEYBINDS: "In-game keybinds"
+}
+global guiTabs := []
+for key, value in tabs.OwnProps() {
+    guiTabs.Push(value)
 }
 global controlOverMouse := ""
 global DPIScale := 1 ; A_ScreenDPI / 96
@@ -71,7 +71,7 @@ class SettingsManager {
     __New() {
         this.clicksOnThisControl := 0
         this.controlLastClicked := 0
-        for tab in tabs {
+        for tab in guiTabs {
             settings[tab] := []
         }
         this.mouseHookActive := false
@@ -80,7 +80,7 @@ class SettingsManager {
         this.makeGUI()
 
         ; Initialize Hotkeys after loading settings
-        for tabName in tabs {
+        for tabName in guiTabs {
             for setting in settings[tabName] {
                 if (setting is HotkeyElement) {
                     setting.register()
@@ -94,13 +94,13 @@ class SettingsManager {
         settingsGui.Opt("-DPIScale")
         settingsGui.OnEvent("Close", (*) => ExitApp())
 
-        tab := settingsGui.Add("Tab3", , tabs)
+        tab := settingsGui.Add("Tab3", , guiTabs)
         tab.OnEvent("Change", (guiCtrl, *) {
             ControlFocus("Hide this fucking bullshit GUI " guiCtrl.value)
             global activeTab := guiCtrl.value
         })
 
-        for tabName in tabs {
+        for tabName in guiTabs {
             tab.UseTab(tabName)
             settingsGui.Add("Text", "x500 y0") ; Here to fix the layout...
             for i, setting in settings[tabName] {
@@ -125,7 +125,7 @@ class SettingsManager {
         }
 
         buttonOffset := 500
-        for index, tabName in tabs { ; Add multiple buttons so we can make hotkeys less painful and set focus on the button so that the hotkeys don't change when you don't want them to.
+        for index, tabName in guiTabs { ; Add multiple buttons so we can make hotkeys less painful and set focus on the button so that the hotkeys don't change when you don't want them to.
             tab.useTab(tabName)
             settingsGui.Add("Button", "x20 y" buttonOffset " w200", "Update hotkeys and save").OnEvent("Click", (*) => this._updateHotkeys())
             settingsGui.Add("Button", "x20 y" buttonOffset + yOffset " w200", "Hide this fucking bullshit GUI " index).OnEvent("Click", (*) => settingsGui.Hide())
@@ -248,7 +248,7 @@ class SettingsManager {
     }
 
     _updateHotkeys() {
-        for tabName in tabs {
+        for tabName in guiTabs {
             for setting in settings[tabName] {
                 if (setting is HotkeyElement) {
                     setting.updateHotkey()
@@ -478,7 +478,7 @@ GetControlFromCoordinates(x, y) {
         if (setting == "") {
             continue
         }
-        if (setting.tab != tabs[activeTab]) {
+        if (setting.tab != guiTabs[activeTab]) {
             continue
         }
         if (x == ctrlX && y == ctrlY) {
@@ -490,10 +490,10 @@ GetControlFromCoordinates(x, y) {
 }
 
 retrieveSetting(settingName, ignoreErrors := false) {
-    for tabName in tabs {
+    for tabName in guiTabs {
         for setting in settings[tabName] {
             if (setting.name == settingName) {
-                if (setting.type == "hotkey" && setting.value == "" && !ignoreErrors) {
+                if (setting is HotkeyElement && setting.value == "" && !ignoreErrors) {
                     throw UnsetError("Hotkey setting " setting.name " has no value set and we are trying to get the fucking value!")
                 }
                 return setting
@@ -633,29 +633,29 @@ repressHorizontalMovementKeys() {
 }
 
 makeSettings() {
-    HotkeyElement("Sniper rifle keybind", "9", enumTabs["KEYBINDS"])
-    HotkeyElement("Heavy weapon keybind", "4", enumTabs["KEYBINDS"])
-    HotkeyElement("Sticky bomb keybind", "5", enumTabs["KEYBINDS"])
-    HotkeyElement("Pistol keybind", "6", enumTabs["KEYBINDS"])
-    HotkeyElement("Shotgun keybind", "3", enumTabs["KEYBINDS"])
-    HotkeyElement("Rifle keybind", "8", enumTabs["KEYBINDS"])
-    HotkeyElement("SMG keybind", "7", enumTabs["KEYBINDS"])
-    HotkeyElement("Fists keybind", "1", enumTabs["KEYBINDS"])
-    HotkeyElement("Melee weapon keybind", "2", enumTabs["KEYBINDS"])
-    HotkeyElement("Interaction menu keybind", "m", enumTabs["KEYBINDS"])
-    HotkeyElement("EWO Animation keybind", "capslock", enumTabs["KEYBINDS"])
-    HotkeyElement("Melee punch keybind", "r", enumTabs["KEYBINDS"])
-    HotkeyElement("Look behind keybind", "c", enumTabs["KEYBINDS"])
-    HotkeyElement("Chat keybind (automatically suspend macros when chat open)", "", enumTabs["KEYBINDS"], (*) {
+    HotkeyElement("Sniper rifle keybind", "9", tabs.KEYBINDS)
+    HotkeyElement("Heavy weapon keybind", "4", tabs.KEYBINDS)
+    HotkeyElement("Sticky bomb keybind", "5", tabs.KEYBINDS)
+    HotkeyElement("Pistol keybind", "6", tabs.KEYBINDS)
+    HotkeyElement("Shotgun keybind", "3", tabs.KEYBINDS)
+    HotkeyElement("Rifle keybind", "8", tabs.KEYBINDS)
+    HotkeyElement("SMG keybind", "7", tabs.KEYBINDS)
+    HotkeyElement("Fists keybind", "1", tabs.KEYBINDS)
+    HotkeyElement("Melee weapon keybind", "2", tabs.KEYBINDS)
+    HotkeyElement("Interaction menu keybind", "m", tabs.KEYBINDS)
+    HotkeyElement("EWO Animation keybind", "capslock", tabs.KEYBINDS)
+    HotkeyElement("Melee punch keybind", "r", tabs.KEYBINDS)
+    HotkeyElement("Look behind keybind", "c", tabs.KEYBINDS)
+    HotkeyElement("Chat keybind (automatically suspend macros when chat open)", "", tabs.KEYBINDS, (*) {
         thisKeybind := retrieveSetting("Chat keybind (automatically suspend macros when chat open)").value
         Send("{Blind}{" thisKeybind "}")
         global chatOpen := true
     })
-    HotkeyElement("Sprint keybind", "lshift", enumTabs["KEYBINDS"])
+    HotkeyElement("Sprint keybind", "lshift", tabs.KEYBINDS)
 
-    SettingElement("Use cursor in interaction menu for slightly faster macros", "bool", false, enumTabs["GENERAL"])
-    SettingElement("Preserve left click state", "bool", false, enumTabs["GENERAL"])
-    HotkeyElement("Ammo", "", enumTabs["GENERAL"], (*) {
+    SettingElement("Use cursor in interaction menu for slightly faster macros", "bool", false, tabs.GENERAL)
+    SettingElement("Preserve left click state", "bool", false, tabs.GENERAL)
+    HotkeyElement("Ammo", "", tabs.GENERAL, (*) {
         shouldUseCursor := retrieveSetting("Use cursor in interaction menu for slightly faster macros").value
         interactionKey := retrieveSetting("Interaction menu keybind").value
 
@@ -693,7 +693,15 @@ makeSettings() {
         }
         accurateSleep(100)
     })
-    HotkeyElement("EWO", "", enumTabs["GENERAL"], (*) {
+    HotkeyElement("EWO", "", tabs.GENERAL, (*) {
+        c4Mode := retrieveSetting("C4 Mode").value
+        if (c4Mode) {
+            thisKeybind := retrieveSetting("EWO").value
+            while (GetKeyState(thisKeybind, "P")) {
+                Send("{Blind}{g}")
+            }
+            return
+        }
         interactionKey := retrieveSetting("Interaction menu keybind").value
         animationKey := retrieveSetting("EWO Animation keybind").value
         meleePunchKey := retrieveSetting("Melee punch keybind").value
@@ -755,10 +763,19 @@ makeSettings() {
         }
         SetCapsLockState("Off")
     })
-    SettingElement("EWO delay (ms) (for cleaner looking ragdoll)", "string", "0", enumTabs["GENERAL"])
-    SettingElement("Shoot before EWOing", "bool", false, enumTabs["GENERAL"])
-    SettingElement("Use experimental EWO macro (slower and can't be customized)", "bool", false, enumTabs["GENERAL"])
-    HotkeyElement("Instant EWO", "", enumTabs["GENERAL"], (*) {
+    SettingElement("EWO delay (ms) (for cleaner looking ragdoll)", "string", "0", tabs.GENERAL)
+    SettingElement("Shoot before EWOing", "bool", false, tabs.GENERAL)
+    SettingElement("Use experimental EWO macro (slower and can't be customized)", "bool", false, tabs.GENERAL)
+    SettingElement("C4 Mode", "bool", false, tabs.GENERAL)
+    HotkeyElement("Instant EWO", "", tabs.GENERAL, (*) {
+        c4Mode := retrieveSetting("C4 Mode").value
+        if (c4Mode) {
+            thisKeybind := retrieveSetting("Instant EWO").value
+            while (GetKeyState(thisKeybind, "P")) {
+                Send("{Blind}{g}")
+            }
+            return
+        }
         interactionKey := retrieveSetting("Interaction menu keybind").value
         animationKey := retrieveSetting("EWO Animation keybind").value
         meleePunchKey := retrieveSetting("Melee punch keybind").value
@@ -781,7 +798,7 @@ makeSettings() {
         SendInput("{Blind}{" animationKey " up}{up up}{" lookBehindKey " up}{" meleePunchKey " up}")
     })
 
-    HotkeyElement("Toggle CEO", "", enumTabs["GENERAL"], (*) {
+    HotkeyElement("Toggle CEO", "", tabs.GENERAL, (*) {
         interactionKey := retrieveSetting("Interaction menu keybind").value
 
         lButtonState := getLButtonCacheState()
@@ -803,7 +820,7 @@ makeSettings() {
         global inCEO := !inCEO
     })
 
-    HotkeyElement("Chat Spam", "", enumTabs["GENERAL"], (*) {
+    HotkeyElement("Chat Spam", "", tabs.GENERAL, (*) {
         chatSpamText := retrieveSetting("Chat Spam Text").value
         thisKeybind := retrieveSetting("Chat Spam").value
         chatKeybind := retrieveSetting("Chat keybind (automatically suspend macros when chat open)").value
@@ -816,8 +833,8 @@ makeSettings() {
             Send("{Blind}{enter up}")
         }
     })
-    SettingElement("Chat Spam Text", "string", "Ω", enumTabs["GENERAL"])
-    HotkeyElement("Fast respawn", "", enumTabs["GENERAL"], (*) {
+    SettingElement("Chat Spam Text", "string", "Ω", tabs.GENERAL)
+    HotkeyElement("Fast respawn", "", tabs.GENERAL, (*) {
         thisKeybind := retrieveSetting("Fast respawn").value
         while (GetKeyState(thisKeybind, "P")) {
             SendInput("{Blind}{lbutton down}")
@@ -827,12 +844,12 @@ makeSettings() {
         }
         cacheLastMacroExecutionTime()
     })
-    HotkeyElement("Quick turn keybind", "", enumTabs["GENERAL"], (*) {
+    HotkeyElement("Quick turn keybind", "", tabs.GENERAL, (*) {
         degrees := retrieveSetting("Degrees to turn").value
         turnDegrees(degrees)
     })
-    SettingElement("Degrees to turn", "string", "180", enumTabs["GENERAL"])
-    HotkeyElement("BST", "", enumTabs["GENERAL"], (*) {
+    SettingElement("Degrees to turn", "string", "180", tabs.GENERAL)
+    HotkeyElement("BST", "", tabs.GENERAL, (*) {
         if (!inCEO) {
             if (FileExist(A_ScriptDir . "\communication 1.ahk") && FileExist(A_ScriptDir . "\communication 2.ahk")) {
                 Run(A_ScriptDir . "\communication 1.ahk")
@@ -860,7 +877,7 @@ makeSettings() {
         }
         cacheLastMacroExecutionTime()
     })
-    SettingElement("Enable macro speed profiling (only useful for developers)", "bool", false, enumTabs["GENERAL"])
+    SettingElement("Enable macro speed profiling (only useful for developers)", "bool", false, tabs.GENERAL)
 
     quickSwitchMethod := (keybind, *) {
         weaponKey := retrieveSetting(keybind).value
@@ -884,16 +901,16 @@ makeSettings() {
         global lastTabSwitchData := { time: startCounting(), weaponKey: weaponKey }
         cacheLastMacroExecutionTime()
     }
-    HotkeyElement("Sniper rifle tab switch", "", enumTabs["WEAPONSWITCH"], (*) => quickSwitchMethod("Sniper rifle keybind"))
-    HotkeyElement("Heavy weapon tab switch", "", enumTabs["WEAPONSWITCH"], (*) => quickSwitchMethod("Heavy weapon keybind"))
-    HotkeyElement("Sticky bomb tab switch", "", enumTabs["WEAPONSWITCH"], (*) => quickSwitchMethod("Sticky bomb keybind"))
-    HotkeyElement("Pistol tab switch", "", enumTabs["WEAPONSWITCH"], (*) => quickSwitchMethod("Pistol keybind"))
-    HotkeyElement("Shotgun tab switch", "", enumTabs["WEAPONSWITCH"], (*) => quickSwitchMethod("Shotgun keybind"))
-    HotkeyElement("Rifle tab switch", "", enumTabs["WEAPONSWITCH"], (*) => quickSwitchMethod("Rifle keybind"))
-    HotkeyElement("SMG tab switch", "", enumTabs["WEAPONSWITCH"], (*) => quickSwitchMethod("SMG keybind"))
-    HotkeyElement("Fists tab switch", "", enumTabs["WEAPONSWITCH"], (*) => quickSwitchMethod("Fists keybind"))
-    HotkeyElement("Melee weapon tab switch", "", enumTabs["WEAPONSWITCH"], (*) => quickSwitchMethod("Melee weapon keybind"))
-    HotkeyElement("RPG Spam", "", enumTabs["WEAPONSWITCH"], (*) {
+    HotkeyElement("Sniper rifle tab switch", "", tabs.WEAPONSWITCH, (*) => quickSwitchMethod("Sniper rifle keybind"))
+    HotkeyElement("Heavy weapon tab switch", "", tabs.WEAPONSWITCH, (*) => quickSwitchMethod("Heavy weapon keybind"))
+    HotkeyElement("Sticky bomb tab switch", "", tabs.WEAPONSWITCH, (*) => quickSwitchMethod("Sticky bomb keybind"))
+    HotkeyElement("Pistol tab switch", "", tabs.WEAPONSWITCH, (*) => quickSwitchMethod("Pistol keybind"))
+    HotkeyElement("Shotgun tab switch", "", tabs.WEAPONSWITCH, (*) => quickSwitchMethod("Shotgun keybind"))
+    HotkeyElement("Rifle tab switch", "", tabs.WEAPONSWITCH, (*) => quickSwitchMethod("Rifle keybind"))
+    HotkeyElement("SMG tab switch", "", tabs.WEAPONSWITCH, (*) => quickSwitchMethod("SMG keybind"))
+    HotkeyElement("Fists tab switch", "", tabs.WEAPONSWITCH, (*) => quickSwitchMethod("Fists keybind"))
+    HotkeyElement("Melee weapon tab switch", "", tabs.WEAPONSWITCH, (*) => quickSwitchMethod("Melee weapon keybind"))
+    HotkeyElement("RPG Spam", "", tabs.WEAPONSWITCH, (*) {
         heavyWeaponKey := retrieveSetting("Heavy weapon keybind").value
         stickyBombKey := retrieveSetting("Sticky bomb keybind").value
         Send("{Blind}{" stickyBombKey " down}")
@@ -903,7 +920,7 @@ makeSettings() {
         Send("{Blind}{tab up}")
         cacheLastMacroExecutionTime()
     })
-    HotkeyElement("Sniper Spam", "", enumTabs["WEAPONSWITCH"], (*) {
+    HotkeyElement("Sniper Spam", "", tabs.WEAPONSWITCH, (*) {
         sniperRifleKey := retrieveSetting("Sniper rifle keybind").value
         stickyBombKey := retrieveSetting("Sticky bomb keybind").value
         Send("{Blind}{" stickyBombKey " down}{" sniperRifleKey " down}{tab down}")
@@ -911,7 +928,7 @@ makeSettings() {
         Send("{Blind}{tab up}")
         cacheLastMacroExecutionTime()
     })
-    SettingElement("Use fully automated spam (extremely buggy)", "bool", false, enumTabs["WEAPONSWITCH"], (newValue, oldValue, *) {
+    SettingElement("Use fully automated spam (extremely buggy)", "bool", false, tabs.WEAPONSWITCH, (newValue, oldValue, *) {
         if (oldValue == newValue) {
             return
         }
@@ -921,10 +938,10 @@ makeSettings() {
             SetTimer(ObjBindMethod(spamManagerInstance, "runLoop"), 0)
         }
     })
-    SettingElement("Automatic left click handling (buggy)", "bool", false, enumTabs["WEAPONSWITCH"])
-    SettingElement("Queue double switching", "bool", false, enumTabs["WEAPONSWITCH"])
-    HotkeyElement("Automated RPG Spam", "", enumTabs["WEAPONSWITCH"])
-    HotkeyElement("Double switch", "", enumTabs["WEAPONSWITCH"], (*) {
+    SettingElement("Automatic left click handling (buggy)", "bool", false, tabs.WEAPONSWITCH)
+    SettingElement("Queue double switching", "bool", false, tabs.WEAPONSWITCH)
+    HotkeyElement("Automated RPG Spam", "", tabs.WEAPONSWITCH)
+    HotkeyElement("Double switch", "", tabs.WEAPONSWITCH, (*) {
         heavyWeaponKey := retrieveSetting("Heavy weapon keybind").value
         useAutomatedSpam := retrieveSetting("Use fully automated spam (extremely buggy)").value
         if (useAutomatedSpam && spamManagerInstance.isSpamming()) {
@@ -966,10 +983,10 @@ makeSettings() {
         }
         cacheLastMacroExecutionTime()
     }
-    HotkeyElement("Explicit RPG Switch", "", enumTabs["WEAPONSWITCH"], (*) => explicitSwitchMethod(retrieveSetting("Heavy weapon keybind").value, 1))
-    HotkeyElement("Explicit Homing Launcher Switch", "", enumTabs["WEAPONSWITCH"], (*) => explicitSwitchMethod(retrieveSetting("Heavy weapon keybind").value, 2))
-    HotkeyElement("Explicit Grenade Launcher Switch", "", enumTabs["WEAPONSWITCH"], (*) => explicitSwitchMethod(retrieveSetting("Heavy weapon keybind").value, 3))
-    HotkeyElement("Safe heavy weapon swap", "", enumTabs["WEAPONSWITCH"], (*) {
+    HotkeyElement("Explicit RPG Switch", "", tabs.WEAPONSWITCH, (*) => explicitSwitchMethod(retrieveSetting("Heavy weapon keybind").value, 1))
+    HotkeyElement("Explicit Homing Launcher Switch", "", tabs.WEAPONSWITCH, (*) => explicitSwitchMethod(retrieveSetting("Heavy weapon keybind").value, 2))
+    HotkeyElement("Explicit Grenade Launcher Switch", "", tabs.WEAPONSWITCH, (*) => explicitSwitchMethod(retrieveSetting("Heavy weapon keybind").value, 3))
+    HotkeyElement("Safe heavy weapon swap", "", tabs.WEAPONSWITCH, (*) {
         heavyWeaponKey := retrieveSetting("Heavy weapon keybind").value
         meleeWeaponKey := retrieveSetting("Melee weapon keybind").value
         Send("{Blind}{" meleeWeaponKey " down}{" heavyWeaponKey " down}{tab down}")
