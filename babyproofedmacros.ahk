@@ -1,4 +1,4 @@
-﻿global macroVersion := "1.0.4.2"
+﻿global macroVersion := "1.0.4.3"
 ;@Ahk2Exe-AddResource *24 input.manifest, 1
 #Requires AutoHotkey v2.1-alpha.18
 #SingleInstance Force
@@ -757,7 +757,7 @@ repressHorizontalMovementKeys() {
 }
 
 shouldHandleHorizontalMovementKeys() {
-    return retrieveSetting("Automatic horizontal key handling (experimental)").value && KeyState.getKeyState(retrieveSetting("Sprint keybind").value) ; && (stopCounting(lastHorizontalMovementKeyReleaseTime) < 200 || KeyState.getKeyState("a") || KeyState.getKeyState("d"))
+    return retrieveSetting("Automatic horizontal key handling (experimental)").value ; && (stopCounting(lastHorizontalMovementKeyReleaseTime) < 200 || KeyState.getKeyState("a") || KeyState.getKeyState("d"))
 }
 
 makeSettings() {
@@ -1022,7 +1022,8 @@ makeSettings() {
         leftClickHandlingSetting := retrieveSetting("Automatic left click handling (buggy)").value
         shiftKeybind := retrieveSetting("Sprint keybind").value
         automaticLButtonHandling := leftClickHandlingSetting && (lastTabSwitchData.weaponKey != c4Keybind || stopCounting(lastTabSwitchData.time) > 390) && weaponKey != c4Keybind && KeyState.getKeyState(shiftKeybind)
-        if (automaticLButtonHandling) {
+        shouldHandleHorizontalMovementKeys := retrieveSetting("Automatic horizontal key handling (experimental)").value
+        if (automaticLButtonHandling && shouldHandleHorizontalMovementKeys) {
             unpressHorizontalMovementKeys()
         }
         if (automaticLButtonHandling) {
@@ -1041,7 +1042,7 @@ makeSettings() {
             }, -100)
         }
         SetTimer(() {
-            if (shouldHandleHorizontalMovementKeys() && automaticLButtonHandling) {
+            if (shouldHandleHorizontalMovementKeys && automaticLButtonHandling) {
                 repressHorizontalMovementKeys()
             }
         }, -105)
@@ -1098,7 +1099,8 @@ makeSettings() {
         leftClickHandlingSetting := retrieveSetting("Automatic left click handling (buggy)").value
         sprintKeybind := retrieveSetting("Sprint keybind").value
         automaticLButtonHandling := leftClickHandlingSetting && (lastTabSwitchData.weaponKey != c4Keybind || stopCounting(lastTabSwitchData.time) > 390) && heavyWeaponKey != c4Keybind && KeyState.getKeyState(sprintKeybind)
-        if (automaticLButtonHandling) {
+        shouldHandleHorizontalMovementKeys := retrieveSetting("Automatic horizontal key handling (experimental)").value
+        if (automaticLButtonHandling && shouldHandleHorizontalMovementKeys) {
             unpressHorizontalMovementKeys()
         }
         Send("{Blind}{" heavyWeaponKey "}")
@@ -1117,7 +1119,7 @@ makeSettings() {
             }, -100)
         }
         SetTimer(() {
-            if (shouldHandleHorizontalMovementKeys() && automaticLButtonHandling) {
+            if (shouldHandleHorizontalMovementKeys && automaticLButtonHandling) {
                 repressHorizontalMovementKeys()
             }
         }, -100)
