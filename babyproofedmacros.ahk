@@ -1,4 +1,4 @@
-﻿global macroVersion := "1.0.4.4"
+﻿global macroVersion := "1.0.4.5"
 ;@Ahk2Exe-AddResource *24 input.manifest, 1
 #Requires AutoHotkey v2.1-alpha.18
 #SingleInstance Force
@@ -673,7 +673,9 @@ isRunningInExeContainer() {
 
 ; Compensates for fractional pixels and turns a certain amount of degrees
 turnDegrees(degrees) {
-    static driftAccumulatorX, driftAccumulatorY, lastTurnTime
+    static driftAccumulatorX := 0
+    static driftAccumulatorY := 0
+    static lastTurnTime := 0
     if (stopCounting(lastTurnTime) > 500) { ; The player likely already moved their mouse so we should just reset the drift compensation
         driftAccumulatorX := 0
         driftAccumulatorY := 0
@@ -1034,7 +1036,7 @@ makeSettings() {
             SendInput("{Blind}{lbutton up}")
         }
         Send("{Blind}{" weaponKey " down}{tab}")
-        SendInput("{Blind}{" weaponKey " up}{" c4Keybind " up}")
+        SendInput("{Blind}{" weaponKey " up}")
         if (weaponKey == heavyWeaponKey) {
             SendInput("{Blind}{WheelDown}") ; automatic zoom out?
         }
@@ -1113,7 +1115,7 @@ makeSettings() {
             SendInput("{Blind}{lbutton up}")
         }
         Send("{Blind}{tab}")
-        SendInput("{Blind}{" heavyWeaponKey " up}{" c4Keybind " up}")
+        SendInput("{Blind}{" heavyWeaponKey " up}")
 
         if (automaticLButtonHandling) {
             SetTimer(() {
