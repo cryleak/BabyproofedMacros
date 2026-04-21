@@ -1,9 +1,9 @@
-﻿global macroVersion := "1.0.4.3"
+﻿global macroVersion := "1.0.4.4"
 ;@Ahk2Exe-AddResource *24 input.manifest, 1
 #Requires AutoHotkey v2.1-alpha.18
 #SingleInstance Force
 #Warn All, Off
-#UseHook true
+#UseHook 1
 InstallKeybdHook(1, 1)
 InstallMouseHook(1, 1)
 
@@ -41,32 +41,25 @@ global guiTabs := []
 for key, value in tabs.OwnProps() {
     guiTabs.Push(value)
 }
-global controlOverMouse := ""
-global DPIScale := 1 ; A_ScreenDPI / 96
-global yOffset := 35 * DPIScale
-global textOffset := 20 * DPIScale
-global elementOffset := (textOffset + 400) * DPIScale
-global settingYOffset := 20 * DPIScale
+global textOffset := 20 ; Needed as a global variable so the mouse hook can calculate which setting the mouse is hovering over based on the y coordinate of the mouse and the x coordinate of the text elements
 global inCEO := false
 global chatOpen := false
 global activeTab := 1
-global hTimer := DllCall("CreateWaitableTimer", "Ptr", 0, "Int", 0, "Ptr", 0, "Ptr")
-global queryPerformanceFrequency := 0
 global coutObj := unset
+
 global macroExecutionStart := 0
 global macroExecutionTime := 0
 global lastMacroExecutionTime := 0
-global sendInputTextElements := []
+
 global lastTabSwitchData := { weaponKey: "", time: 0 }
-global driftAccumulatorX := 0
-global driftAccumulatorY := 0
-global lastTurnTime := 0
-global lastHorizontalMovementKeyReleaseTime := 0
+global sendInputTextElements := []
+
+global queryPerformanceFrequency := 0
 DllCall("QueryPerformanceFrequency", "Int64P", &queryPerformanceFrequency)
-Hotkey("~$*Enter", (*) => onChatClose())
-Hotkey("~$*Esc", (*) => onChatClose())
+Hotkey("~*Enter", (*) => onChatClose())
+Hotkey("~*Esc", (*) => onChatClose())
 if (!isRunningInExeContainer()) {
-    Hotkey("*$F12", (*) => Reload())
+    Hotkey("*F12", (*) => Reload())
 }
 
 doVersionCheck()
@@ -103,7 +96,7 @@ class SettingsManager {
                     }
                 }
             }
-        }, -100)
+        }, -50)
     }
 
     makeGUI() {
@@ -116,6 +109,10 @@ class SettingsManager {
             ControlFocus("Hide this fucking bullshit GUI " guiCtrl.value)
             global activeTab := guiCtrl.value
         })
+
+        yOffset := 35
+        elementOffset := (textOffset + 400)
+        settingYOffset := 20
 
         for tabName in guiTabs {
             tab.UseTab(tabName)
@@ -251,7 +248,7 @@ class SettingsManager {
             return
         }
         this.clicksOnThisControl := 0
-        global controlOverMouse := GuiCtrlFromHwnd(controlNN)
+        controlOverMouse := GuiCtrlFromHwnd(controlNN)
         className := WinGetClass("ahk_id " controlNN)
         if (className == "msctls_hotkey32" && WinActive("Horrible Base Macros Settings")) {
             className := WinGetClass("ahk_id " controlOverMouse.hwnd)
@@ -365,8 +362,8 @@ class HotkeyElement extends SettingElement {
             try {
                 HotIfWinActive("ahk_class grcWindow")
                 if (!settingsManagerInstance.isAHotkeyBoundToKey(this.oldValue)) {
-                    try Hotkey(this.hotkeyValueAddendumPre "*$" this.oldValue this.hotkeyValueAddendumPost, , "Off")
-                    try Hotkey(this.hotkeyValueAddendumPre "*$" this.oldValue this.hotkeyValueAddendumPost " up", , "Off")
+                    try Hotkey(this.hotkeyValueAddendumPre "*" this.oldValue this.hotkeyValueAddendumPost, , "Off")
+                    try Hotkey(this.hotkeyValueAddendumPre "*" this.oldValue this.hotkeyValueAddendumPost " up", , "Off")
                 }
                 this._bindHotkey()
             } catch as err {
@@ -378,8 +375,8 @@ class HotkeyElement extends SettingElement {
     unregister() {
         if (this.value != "") {
             HotIfWinActive("ahk_class grcWindow")
-            try Hotkey(this.hotkeyValueAddendumPre "*$" this.value this.hotkeyValueAddendumPost, "Off")
-            try Hotkey(this.hotkeyValueAddendumPre "*$" this.value this.hotkeyValueAddendumPost " up", "Off")
+            try Hotkey(this.hotkeyValueAddendumPre "*" this.value this.hotkeyValueAddendumPost, "Off")
+            try Hotkey(this.hotkeyValueAddendumPre "*" this.value this.hotkeyValueAddendumPost " up", "Off")
             HotIfWinActive()
         }
     }
@@ -429,8 +426,8 @@ class HotkeyElement extends SettingElement {
         }
         if (this.oldValue != "" && this.macroExec != "" && !settingsManagerInstance.isAHotkeyBoundToKey(this.oldValue)) {
             HotIfWinActive("ahk_class grcWindow")
-            try Hotkey(this.hotkeyValueAddendumPre "*$" this.oldValue this.hotkeyValueAddendumPost, "Off")
-            try Hotkey(this.hotkeyValueAddendumPre "*$" this.oldValue this.hotkeyValueAddendumPost " up", "Off")
+            try Hotkey(this.hotkeyValueAddendumPre "*" this.oldValue this.hotkeyValueAddendumPost, "Off")
+            try Hotkey(this.hotkeyValueAddendumPre "*" this.oldValue this.hotkeyValueAddendumPost " up", "Off")
             HotIfWinActive()
         }
 
@@ -448,15 +445,15 @@ class HotkeyElement extends SettingElement {
     _bindHotkey() {
         HotIfWinActive("ahk_class grcWindow")
         if (InStr(this.hotkeyValueAddendumPost, "Up")) {
-            try Hotkey(this.hotkeyValueAddendumPre "*$" this.value, (*) {
+            try Hotkey(this.hotkeyValueAddendumPre "*" this.value, (*) {
                 KeyState.setKeyState(this.value, true)
             }, "On")
         } else {
-            try Hotkey(this.hotkeyValueAddendumPre "*$" this.value this.hotkeyValueAddendumPost " up", (*) {
+            try Hotkey(this.hotkeyValueAddendumPre "*" this.value this.hotkeyValueAddendumPost " up", (*) {
                 KeyState.setKeyState(this.value, false)
             }, "On")
         }
-        try Hotkey(this.hotkeyValueAddendumPre "*$" this.value this.hotkeyValueAddendumPost, ObjBindMethod(this, "performHotkey"), "On")
+        try Hotkey(this.hotkeyValueAddendumPre "*" this.value this.hotkeyValueAddendumPost, ObjBindMethod(this, "performHotkey"), "On")
         HotIfWinActive()
     }
 }
@@ -552,6 +549,9 @@ accurateSleep(ms) {
     ; DllCall("Sleep", "UInt", ms)
 
     ; lets you sleep in 0.5ms intervals instead of 1ms
+    if (!IsSet(hTimer)) {
+        static hTimer := DllCall("CreateWaitableTimer", "Ptr", 0, "Int", 0, "Ptr", 0, "Ptr")
+    }
     dueTime := Buffer(8, 0)
     NumPut("Int64", -(ms * 10000), dueTime, 0)
 
@@ -673,7 +673,7 @@ isRunningInExeContainer() {
 
 ; Compensates for fractional pixels and turns a certain amount of degrees
 turnDegrees(degrees) {
-    global driftAccumulatorX, driftAccumulatorY, lastTurnTime
+    static driftAccumulatorX, driftAccumulatorY, lastTurnTime
     if (stopCounting(lastTurnTime) > 500) { ; The player likely already moved their mouse so we should just reset the drift compensation
         driftAccumulatorX := 0
         driftAccumulatorY := 0
@@ -782,11 +782,12 @@ makeSettings() {
     })
     HotkeyElement("Sprint keybind", "lshift", tabs.KEYBINDS)
 
+    ; These are dummy keybinds to force them to go through the KeyState handler instead of having to rely on regular GetKeyState
     HotkeyElement("a keybind", "a", tabs.GENERAL, (*) {
-        lastHorizontalMovementKeyReleaseTime := startCounting()
+        ; lastHorizontalMovementKeyReleaseTime := startCounting()
     }, true, "~", "up")
     HotkeyElement("d keybind", "d", tabs.GENERAL, (*) {
-        lastHorizontalMovementKeyReleaseTime := startCounting()
+        ; lastHorizontalMovementKeyReleaseTime := startCounting()
     }, true, "~", "up")
 
     SettingElement("Use cursor in interaction menu for slightly faster macros", "bool", false, tabs.GENERAL)
@@ -1008,7 +1009,10 @@ makeSettings() {
         }
         cacheLastMacroExecutionTime()
     })
-    SettingElement("Enable macro speed profiling (only useful for developers)", "bool", false, tabs.GENERAL)
+    SettingElement("Enable macro speed profiling (only useful for developers)", "bool", false, tabs.GENERAL, , isRunningInExeContainer() ? true : false)
+    if (isRunningInExeContainer()) {
+        retrieveSetting("Enable macro speed profiling (only useful for developers)").value := false
+    }
 
     quickSwitchMethod := (keybind, *) {
         weaponKey := retrieveSetting(keybind).value
@@ -1046,8 +1050,8 @@ makeSettings() {
                 repressHorizontalMovementKeys()
             }
         }, -105)
-        global lastTabSwitchData := { time: startCounting(), weaponKey: weaponKey }
         cacheLastMacroExecutionTime()
+        global lastTabSwitchData := { time: startCounting(), weaponKey: weaponKey }
     }
     HotkeyElement("Sniper rifle tab switch", "", tabs.WEAPONSWITCH, (*) => quickSwitchMethod("Sniper rifle keybind"))
     HotkeyElement("Heavy weapon tab switch", "", tabs.WEAPONSWITCH, (*) => quickSwitchMethod("Heavy weapon keybind"))
@@ -1124,6 +1128,7 @@ makeSettings() {
             }
         }, -100)
         cacheLastMacroExecutionTime()
+        global lastTabSwitchData := { time: startCounting(), weaponKey: heavyWeaponKey }
     })
     explicitSwitchMethod := (weaponKey, pressAmount, *) {
         LButtonState := GetKeyState("LButton", "P")
@@ -1232,17 +1237,15 @@ class KeyDisabler {
     static enableAllKeys() {
         for key in this.disabledKeys {
             HotIfWinActive("ahk_class grcWindow")
-            Hotkey("*$" key, "Off")
+            Hotkey("*" key, "Off")
             HotIfWinActive()
         }
         this.disabledKeys := []
     }
 
     static disableKey(key) {
-        for disabledKey in this.disabledKeys {
-            if (disabledKey == key) {
-                return
-            }
+        if (this.isKeyDisabled(key)) {
+            return
         }
         hotkeySetting := settingsManagerInstance.findHotkeyBoundToAKey(key)
         if (!!hotkeySetting) {
@@ -1251,13 +1254,13 @@ class KeyDisabler {
         }
 
         HotIfWinActive("ahk_class grcWindow")
-        Hotkey("*$" key, (*) {
+        Hotkey("*" key, (*) {
             KeyState.setKeyState(key, true)
             if (!!hotkeySetting && hotkeySetting.runWhenDisabled) {
                 hotkeySetting.performHotkey()
             }
         }, "On")
-        Hotkey("*$" key " up", (*) {
+        Hotkey("*" key " up", (*) {
             KeyState.setKeyState(key, false)
         }, "On")
         HotIfWinActive()
@@ -1269,17 +1272,19 @@ class KeyDisabler {
             disabledKey := keyObj.key
             if (disabledKey == key) {
                 HotIfWinActive("ahk_class grcWindow")
-                Hotkey("*$" key, "Off")
-                Hotkey("*$" key " up", "Off")
+                Hotkey("*" key, "Off")
+                Hotkey("*" key " up", "Off")
                 HotIfWinActive()
                 this.disabledKeys.RemoveAt(index)
                 if (!!keyObj.hotkeySetting) {
                     keyObj.hotkeySetting.disabledByKeyDisabler := false
                     keyObj.hotkeySetting.register()
                 }
+                /*
                 if (GetKeyState(key, "P")) {
                     SendInput("{Blind}{" key " down}")
                 }
+                */
                 return
             }
         }
