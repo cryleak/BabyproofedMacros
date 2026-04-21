@@ -1,4 +1,4 @@
-﻿global macroVersion := "1.0.4.1"
+﻿global macroVersion := "1.0.4.2"
 ;@Ahk2Exe-AddResource *24 input.manifest, 1
 #Requires AutoHotkey v2.1-alpha.18
 #SingleInstance Force
@@ -74,6 +74,12 @@ doVersionCheck()
 global settingsManagerInstance := SettingsManager()
 global spamManagerInstance := SpamManager()
 
+SetTimer((*) {
+    str := "A state: " KeyState.getKeyState("a") " D state: " KeyState.getKeyState("d") " Time: " startCounting()
+    str .= "`nA disabled: " KeyDisabler.isKeyDisabled("a") " D disabled: " KeyDisabler.isKeyDisabled("d")
+    ToolTip(str, 0, 0)
+}, 1)
+
 class SettingsManager {
     __New() {
         this.clicksOnThisControl := 0
@@ -86,14 +92,16 @@ class SettingsManager {
 
         this.makeGUI()
 
-        ; Initialize Hotkeys after loading settings
-        for tabName in guiTabs {
-            for setting in settings[tabName] {
-                if (setting is HotkeyElement) {
-                    setting.register()
+        SetTimer((*) {
+            ; Initialize Hotkeys after loading settings
+            for tabName in guiTabs {
+                for setting in settings[tabName] {
+                    if (setting is HotkeyElement) {
+                        setting.register()
+                    }
                 }
             }
-        }
+        }, -100)
     }
 
     makeGUI() {
@@ -204,11 +212,11 @@ class SettingsManager {
         this.mouseHookActive := true
 
         ; Need to bind them to this for some reason otherwise this is undefined in the handler
-        Hotkey("~LButton", ObjBindMethod(this, "_mouseClickHandler"), "On")
-        Hotkey("~RButton", ObjBindMethod(this, "_mouseClickHandler"), "On")
-        Hotkey("~MButton", ObjBindMethod(this, "_mouseClickHandler"), "On")
-        Hotkey("~XButton1", ObjBindMethod(this, "_mouseClickHandler"), "On")
-        Hotkey("~XButton2", ObjBindMethod(this, "_mouseClickHandler"), "On")
+        try Hotkey("~LButton", ObjBindMethod(this, "_mouseClickHandler"), "On")
+        try Hotkey("~RButton", ObjBindMethod(this, "_mouseClickHandler"), "On")
+        try Hotkey("~MButton", ObjBindMethod(this, "_mouseClickHandler"), "On")
+        try Hotkey("~XButton1", ObjBindMethod(this, "_mouseClickHandler"), "On")
+        try Hotkey("~XButton2", ObjBindMethod(this, "_mouseClickHandler"), "On")
     }
 
     _removeMouseHook() {
@@ -217,11 +225,11 @@ class SettingsManager {
         }
         this.mouseHookActive := false
 
-        Hotkey("~LButton", "Off")
-        Hotkey("~RButton", "Off")
-        Hotkey("~MButton", "Off")
-        Hotkey("~XButton1", "Off")
-        Hotkey("~XButton2", "Off")
+        try Hotkey("~LButton", "Off")
+        try Hotkey("~RButton", "Off")
+        try Hotkey("~MButton", "Off")
+        try Hotkey("~XButton1", "Off")
+        try Hotkey("~XButton2", "Off")
         settingsManagerInstance._reregisterHotkeys()
     }
 
@@ -354,31 +362,32 @@ class HotkeyElement extends SettingElement {
         if (this.value != "" && this.macroExec != "") {
             try {
                 HotIfWinActive("ahk_class grcWindow")
-                try {
-                    if (!settingsManagerInstance.isAHotkeyBoundToKey(this.oldValue)) {
-                        Hotkey(this.hotkeyValueAddendumPre "*$" this.oldValue this.hotkeyValueAddendumPost, , "Off")
-                    }
+                if (!settingsManagerInstance.isAHotkeyBoundToKey(this.oldValue)) {
+                    try Hotkey(this.hotkeyValueAddendumPre "*$" this.oldValue this.hotkeyValueAddendumPost, , "Off")
+                    try Hotkey(this.hotkeyValueAddendumPre "*$" this.oldValue this.hotkeyValueAddendumPost " up", , "Off")
                 }
-                HotIfWinActive("ahk_class grcWindow")
-                Hotkey(this.hotkeyValueAddendumPre "*$" this.value this.hotkeyValueAddendumPost, ObjBindMethod(this, "performHotkey"), "On")
+                this._bindHotkey()
             } catch as err {
                 MsgBox("Could not register hotkey: " this.value "`nError: " err.Message)
             }
-            HotIfWinActive()
         }
     }
 
     unregister() {
         if (this.value != "") {
-            try {
-                HotIfWinActive("ahk_class grcWindow")
-                Hotkey(this.hotkeyValueAddendumPre "*$" this.value this.hotkeyValueAddendumPost, "Off")
-                HotIfWinActive()
-            }
+            HotIfWinActive("ahk_class grcWindow")
+            try Hotkey(this.hotkeyValueAddendumPre "*$" this.value this.hotkeyValueAddendumPost, "Off")
+            try Hotkey(this.hotkeyValueAddendumPre "*$" this.value this.hotkeyValueAddendumPost " up", "Off")
+            HotIfWinActive()
         }
     }
 
     performHotkey(*) {
+        if (InStr(this.hotkeyValueAddendumPost, "Up")) {
+            KeyState.setKeyState(this.value, false)
+        } else {
+            KeyState.setKeyState(this.value, true)
+        }
         if (chatOpen) {
             thisKeybind := retrieveSetting(this.name).value
             Send("{Blind}{" thisKeybind "}")
@@ -418,21 +427,35 @@ class HotkeyElement extends SettingElement {
         }
         if (this.oldValue != "" && this.macroExec != "" && !settingsManagerInstance.isAHotkeyBoundToKey(this.oldValue)) {
             HotIfWinActive("ahk_class grcWindow")
-            Hotkey(this.hotkeyValueAddendumPre "*$" this.oldValue this.hotkeyValueAddendumPost, "Off")
+            try Hotkey(this.hotkeyValueAddendumPre "*$" this.oldValue this.hotkeyValueAddendumPost, "Off")
+            try Hotkey(this.hotkeyValueAddendumPre "*$" this.oldValue this.hotkeyValueAddendumPost " up", "Off")
             HotIfWinActive()
         }
 
         if (this.value != "" && this.macroExec != "") {
             try {
-                HotIfWinActive("ahk_class grcWindow")
-                Hotkey(this.hotkeyValueAddendumPre "*$" this.value this.hotkeyValueAddendumPost, ObjBindMethod(this, "performHotkey"), "On")
-                HotIfWinActive()
+                this._bindHotkey()
             } catch {
                 throw UnsetError("Could not register hotkey: " this.value)
             }
         }
         this.oldValue := this.value
         this.saveValue()
+    }
+
+    _bindHotkey() {
+        HotIfWinActive("ahk_class grcWindow")
+        if (InStr(this.hotkeyValueAddendumPost, "Up")) {
+            try Hotkey(this.hotkeyValueAddendumPre "*$" this.value, (*) {
+                KeyState.setKeyState(this.value, true)
+            }, "On")
+        } else {
+            try Hotkey(this.hotkeyValueAddendumPre "*$" this.value this.hotkeyValueAddendumPost " up", (*) {
+                KeyState.setKeyState(this.value, false)
+            }, "On")
+        }
+        try Hotkey(this.hotkeyValueAddendumPre "*$" this.value this.hotkeyValueAddendumPost, ObjBindMethod(this, "performHotkey"), "On")
+        HotIfWinActive()
     }
 }
 
@@ -695,8 +718,8 @@ SendStringByMessage(charArray) {
     }
 }
 
-getLButtonCacheState() {
-    return GetKeyState("LButton", "P") && retrieveSetting("Preserve left click state").value
+shouldPreserveLeftClick() {
+    return retrieveSetting("Preserve left click state").value && GetKeyState("LButton", "P")
 }
 
 cacheLastMacroExecutionTime() {
@@ -723,16 +746,16 @@ unpressHorizontalMovementKeys() {
 repressHorizontalMovementKeys() {
     KeyDisabler.enableKey("a")
     KeyDisabler.enableKey("d")
-    if (GetKeyState("a", "P")) {
+    if (KeyState.getKeyState("a")) {
         SendInput("{Blind}{a down}")
     }
-    if (GetKeyState("d", "P")) {
+    if (KeyState.getKeyState("d")) {
         SendInput("{Blind}{d down}")
     }
 }
 
 shouldHandleHorizontalMovementKeys() {
-    return retrieveSetting("Automatic horizontal key handling (experimental)").value && (stopCounting(lastHorizontalMovementKeyReleaseTime) < 200 || (GetKeyState("a", "P") || GetKeyState("d", "P"))) && GetKeyState(retrieveSetting("Sprint keybind").value, "P")
+    return retrieveSetting("Automatic horizontal key handling (experimental)").value && KeyState.getKeyState(retrieveSetting("Sprint keybind").value) ; && (stopCounting(lastHorizontalMovementKeyReleaseTime) < 200 || KeyState.getKeyState("a") || KeyState.getKeyState("d"))
 }
 
 makeSettings() {
@@ -770,8 +793,6 @@ makeSettings() {
         shouldUseCursor := retrieveSetting("Use cursor in interaction menu for slightly faster macros").value
         interactionKey := retrieveSetting("Interaction menu keybind").value
 
-        lButtonState := getLButtonCacheState()
-
         if (shouldUseCursor) {
             lockCursorToPixelCoordinates(0.1175, 0.32075)
         }
@@ -799,7 +820,7 @@ makeSettings() {
         }
         cacheLastMacroExecutionTime()
         Send("{Blind}{" interactionKey "}")
-        if (lButtonState) {
+        if (shouldPreserveLeftClick()) {
             SendInput("{Blind}{lbutton down}")
         }
         accurateSleep(100)
@@ -912,8 +933,6 @@ makeSettings() {
     HotkeyElement("Toggle CEO", "", tabs.GENERAL, (*) {
         interactionKey := retrieveSetting("Interaction menu keybind").value
 
-        lButtonState := getLButtonCacheState()
-
         SendInput("{Blind}{lbutton up}{enter down}")
         if (inCEO) {
             Send("{Blind}{" interactionKey "}{enter up}{up down}")
@@ -925,7 +944,7 @@ makeSettings() {
             SendInput("{Blind}{enter up}")
             Send("{Blind}{enter}")
         }
-        if (lButtonState) {
+        if (shouldPreserveLeftClick()) {
             SendInput("{Blind}{lbutton down}")
         }
         global inCEO := !inCEO
@@ -973,7 +992,6 @@ makeSettings() {
             return
         }
         interactionMenuKey := retrieveSetting("Interaction menu keybind").value
-        lButtonState := getLButtonCacheState()
 
         SendInput("{Blind}{lbutton up}{enter down}")
 
@@ -983,7 +1001,7 @@ makeSettings() {
         frameSleep(1)
         SendInput("{Blind}{WheelDown}{enter down}")
         Send("{Blind}{enter up}")
-        if (lButtonState) {
+        if (shouldPreserveLeftClick()) {
             SendInput("{Blind}{lbutton down}")
         }
         cacheLastMacroExecutionTime()
@@ -1001,7 +1019,7 @@ makeSettings() {
         heavyWeaponKey := retrieveSetting("Heavy weapon keybind").value
         leftClickHandlingSetting := retrieveSetting("Automatic left click handling (buggy)").value
         shiftKeybind := retrieveSetting("Sprint keybind").value
-        automaticLButtonHandling := leftClickHandlingSetting && (lastTabSwitchData.weaponKey != c4Keybind || stopCounting(lastTabSwitchData.time) > 390) && weaponKey != c4Keybind && GetKeyState(shiftKeybind, "P")
+        automaticLButtonHandling := leftClickHandlingSetting && (lastTabSwitchData.weaponKey != c4Keybind || stopCounting(lastTabSwitchData.time) > 390) && weaponKey != c4Keybind && KeyState.getKeyState(shiftKeybind)
         if (automaticLButtonHandling) {
             unpressHorizontalMovementKeys()
         }
@@ -1021,7 +1039,7 @@ makeSettings() {
             }, -100)
         }
         SetTimer(() {
-            if (shouldHandleHorizontalMovementKeys() && leftClickHandlingSetting) {
+            if (shouldHandleHorizontalMovementKeys() && automaticLButtonHandling) {
                 repressHorizontalMovementKeys()
             }
         }, -190)
@@ -1076,7 +1094,8 @@ makeSettings() {
         }
         c4Keybind := retrieveSetting("Sticky bomb keybind").value
         leftClickHandlingSetting := retrieveSetting("Automatic left click handling (buggy)").value
-        automaticLButtonHandling := leftClickHandlingSetting && (lastTabSwitchData.weaponKey != c4Keybind || stopCounting(lastTabSwitchData.time) > 390) && heavyWeaponKey != c4Keybind
+        sprintKeybind := retrieveSetting("Sprint keybind").value
+        automaticLButtonHandling := leftClickHandlingSetting && (lastTabSwitchData.weaponKey != c4Keybind || stopCounting(lastTabSwitchData.time) > 390) && heavyWeaponKey != c4Keybind && KeyState.getKeyState(sprintKeybind)
         if (automaticLButtonHandling) {
             unpressHorizontalMovementKeys()
         }
@@ -1096,7 +1115,7 @@ makeSettings() {
             }, -100)
         }
         SetTimer(() {
-            if (shouldHandleHorizontalMovementKeys() && leftClickHandlingSetting) {
+            if (shouldHandleHorizontalMovementKeys() && automaticLButtonHandling) {
                 repressHorizontalMovementKeys()
             }
         }, -185)
@@ -1229,10 +1248,14 @@ class KeyDisabler {
 
         HotIfWinActive("ahk_class grcWindow")
         Hotkey("*$" key, (*) {
+            KeyState.setKeyState(key, true)
             if (!!hotkeySetting && hotkeySetting.runWhenDisabled) {
                 hotkeySetting.performHotkey()
             }
-        })
+        }, "On")
+        Hotkey("*$" key " up", (*) {
+            KeyState.setKeyState(key, false)
+        }, "On")
         HotIfWinActive()
         this.disabledKeys.Push({ key: key, hotkeySetting: hotkeySetting })
     }
@@ -1243,6 +1266,7 @@ class KeyDisabler {
             if (disabledKey == key) {
                 HotIfWinActive("ahk_class grcWindow")
                 Hotkey("*$" key, "Off")
+                Hotkey("*$" key " up", "Off")
                 HotIfWinActive()
                 this.disabledKeys.RemoveAt(index)
                 if (!!keyObj.hotkeySetting) {
@@ -1255,5 +1279,32 @@ class KeyDisabler {
                 return
             }
         }
+    }
+
+    static isKeyDisabled(key) {
+        for keyObj in this.disabledKeys {
+            if (keyObj.key == key) {
+                return true
+            }
+        }
+        return false
+    }
+}
+
+; Self implemented GetKeyState to fix key sticking hopefully. Not reliable for some things, so only used for horizontal movement key handling for now.
+class KeyState {
+    static keyStates := Map()
+
+    static setKeyState(key, state) {
+        this.keyStates[key] := state
+    }
+
+    static getKeyState(key) {
+        if (!this.keyStates.Has(key)) {
+            ; vkCode := GetKeyVK(key)
+            ; return (DllCall("GetAsyncKeyState", "Int", vkCode) & 0x8000) != 0
+            return GetKeyState(key, "P")
+        }
+        return this.keyStates[key]
     }
 }
