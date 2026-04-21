@@ -1,4 +1,4 @@
-﻿global macroVersion := "1.0.3.1"
+﻿global macroVersion := "1.0.4.1"
 ;@Ahk2Exe-AddResource *24 input.manifest, 1
 #Requires AutoHotkey v2.1-alpha.18
 #SingleInstance Force
@@ -58,9 +58,16 @@ global macroExecutionTime := 0
 global lastMacroExecutionTime := 0
 global sendInputTextElements := []
 global lastTabSwitchData := { weaponKey: "", time: 0 }
+global driftAccumulatorX := 0
+global driftAccumulatorY := 0
+global lastTurnTime := 0
+global lastHorizontalMovementKeyReleaseTime := 0
 DllCall("QueryPerformanceFrequency", "Int64P", &queryPerformanceFrequency)
 Hotkey("~$*Enter", (*) => onChatClose())
 Hotkey("~$*Esc", (*) => onChatClose())
+if (!isRunningInExeContainer()) {
+    Hotkey("*$F12", (*) => Reload())
+}
 
 doVersionCheck()
 
@@ -103,12 +110,17 @@ class SettingsManager {
         for tabName in guiTabs {
             tab.UseTab(tabName)
             settingsGui.Add("Text", "x500 y0") ; Here to fix the layout...
-            for i, setting in settings[tabName] {
+            i := 0
+            for setting in settings[tabName] {
+                if (setting.invisible) {
+                    continue
+                }
+                i++
                 settingsGui.Add("Text", "x" textOffset " y" (i * settingYOffset) + yOffset, setting.name)
 
                 eventName := ""
                 if (setting.type = "bool") {
-                    ctrl := settingsGui.Add("Checkbox", "x" elementOffset " y" (i * settingYOffset) + yOffset + 3)
+                    ctrl := settingsGui.Add("Checkbox", "W28 x" elementOffset " y" (i * settingYOffset) + yOffset + 6) ; Why is the hitbox for the checkbox not at all matching the visual checkbox?
                     eventName := "Click"
                 } else if (setting.type = "hotkey") {
                     ctrl := settingsGui.Add("Hotkey", "W80 x" elementOffset " y" (i * settingYOffset) + yOffset)
@@ -160,6 +172,11 @@ class SettingsManager {
             if (WinActive("ahk_class grcWindow")) {
                 this._updateSendInputState()
             }
+            static gtaOpen := false
+            if (WinExist("ahk_class grcWindow") && !gtaOpen) {
+                InstallKeybdHook(1, 1)
+                gtaOpen := true
+            }
         }, 1000)
     }
 
@@ -205,6 +222,7 @@ class SettingsManager {
         Hotkey("~MButton", "Off")
         Hotkey("~XButton1", "Off")
         Hotkey("~XButton2", "Off")
+        settingsManagerInstance._reregisterHotkeys()
     }
 
     _mouseClickHandler(*) {
@@ -257,10 +275,36 @@ class SettingsManager {
             }
         }
     }
+
+    _reregisterHotkeys() {
+        for tabName in guiTabs {
+            for setting in settings[tabName] {
+                if (setting is HotkeyElement) {
+                    setting.register()
+                }
+            }
+        }
+    }
+
+    findHotkeyBoundToAKey(key) {
+        for tabName in guiTabs {
+            for setting in settings[tabName] {
+                if (setting is HotkeyElement && setting.value == key && setting.macroExec != "") {
+                    return setting
+                }
+            }
+        }
+        return false
+    }
+
+    isAHotkeyBoundToKey(key) {
+        return !!this.findHotkeyBoundToAKey(key)
+    }
+
 }
 
 class SettingElement {
-    __New(name, type, defaultValue, tab, onChange := "") {
+    __New(name, type, defaultValue, tab, onChange := "", invisible := false) {
         this.name := name
         this.type := type
         this.defaultValue := defaultValue
@@ -268,6 +312,7 @@ class SettingElement {
         this.oldValue := this.value
         this.tab := tab
         this.onChange := onChange
+        this.invisible := invisible
         settings[tab].Push(this)
         this.saveValue()
     }
@@ -292,23 +337,43 @@ class SettingElement {
 }
 
 class HotkeyElement extends SettingElement {
-    __New(name, defaultValue, tab, macroExec?) {
-        super.__New(name, "hotkey", defaultValue, tab)
-        if (IsSet(macroExec)) {
-            this.macroExec := macroExec
-        } else {
-            this.macroExec := ""
-        }
+    __New(name, defaultValue, tab, macroExec := "", invisible := false, hotkeyValueAddendumPre := "", hotkeyValueAddendumPost := "", runWhenDisabled := false) {
+        super.__New(name, "hotkey", defaultValue, tab, , invisible)
+        this.macroExec := macroExec
+        this.hotkeyValueAddendumPre := hotkeyValueAddendumPre
+        this.hotkeyValueAddendumPost := hotkeyValueAddendumPost == "" ? "" : " " hotkeyValueAddendumPost
+        this.disabledByKeyDisabler := false
+        this.runWhenDisabled := runWhenDisabled
     }
 
     register() {
+        if (this.disabledByKeyDisabler) {
+            this.unregister()
+            return
+        }
         if (this.value != "" && this.macroExec != "") {
             try {
                 HotIfWinActive("ahk_class grcWindow")
-                Hotkey("*$" this.value, ObjBindMethod(this, "performHotkey"), "On")
-                HotIfWinActive()
+                try {
+                    if (!settingsManagerInstance.isAHotkeyBoundToKey(this.oldValue)) {
+                        Hotkey(this.hotkeyValueAddendumPre "*$" this.oldValue this.hotkeyValueAddendumPost, , "Off")
+                    }
+                }
+                HotIfWinActive("ahk_class grcWindow")
+                Hotkey(this.hotkeyValueAddendumPre "*$" this.value this.hotkeyValueAddendumPost, ObjBindMethod(this, "performHotkey"), "On")
             } catch as err {
                 MsgBox("Could not register hotkey: " this.value "`nError: " err.Message)
+            }
+            HotIfWinActive()
+        }
+    }
+
+    unregister() {
+        if (this.value != "") {
+            try {
+                HotIfWinActive("ahk_class grcWindow")
+                Hotkey(this.hotkeyValueAddendumPre "*$" this.value this.hotkeyValueAddendumPost, "Off")
+                HotIfWinActive()
             }
         }
     }
@@ -337,26 +402,30 @@ class HotkeyElement extends SettingElement {
     }
 
     handleUpdate(guiCtrl, *) {
-        this.value := guiCtrl.Value
+        super.handleUpdate(guiCtrl)
         ; ToolTip("Setting Updated: " this.name " = " this.value)
         ; SetTimer(() => ToolTip(), -500)
     }
 
     ; manage disabling old hotkeys and enabling new ones
     updateHotkey() {
+        if (this.disabledByKeyDisabler) {
+            this.unregister()
+            return
+        }
         if (this.oldValue == this.value) {
             return
         }
-        if (this.oldValue != "" && this.macroExec != "") {
+        if (this.oldValue != "" && this.macroExec != "" && !settingsManagerInstance.isAHotkeyBoundToKey(this.oldValue)) {
             HotIfWinActive("ahk_class grcWindow")
-            Hotkey("*$" this.oldValue, "Off")
+            Hotkey(this.hotkeyValueAddendumPre "*$" this.oldValue this.hotkeyValueAddendumPost, "Off")
             HotIfWinActive()
         }
 
         if (this.value != "" && this.macroExec != "") {
             try {
                 HotIfWinActive("ahk_class grcWindow")
-                Hotkey("*$" this.value, ObjBindMethod(this, "performHotkey"), "On")
+                Hotkey(this.hotkeyValueAddendumPre "*$" this.value this.hotkeyValueAddendumPost, ObjBindMethod(this, "performHotkey"), "On")
                 HotIfWinActive()
             } catch {
                 throw UnsetError("Could not register hotkey: " this.value)
@@ -410,9 +479,9 @@ frameSleep(amount) {
 }
 
 ; Uses a combination of the scroll wheel and the arrow keys to scroll faster, you can scroll twice in 2 frames with this instead of 4.
-scrollInDirection(direction, amount, extraInput?) {
+scrollInDirection(direction, amount, extraInput := "") {
     doExtraInput := () { ; Send an extra input if provided by the caller
-        if (IsSet(extraInput) && extraInput != "") {
+        if (extraInput != "") {
             SendInput(extraInput)
             extraInput := ""
         }
@@ -571,11 +640,40 @@ isCursorHidden() {
     return A_Cursor == "Unknown"
 }
 
+isRunningInExeContainer() {
+    fileName := A_ScriptName
+
+    return InStr(fileName, ".exe")
+}
+
+; Compensates for fractional pixels and turns a certain amount of degrees
 turnDegrees(degrees) {
-    ; These values aren't fully accurate but it's impossible to get perfect accuracy because you can only move the mouse 1 pixel, not half a pixel. So the higher resolution, the more accurate it should theoretically be.
-    scalar := GetKeyState("RButton", "P") ? (322 / 180) : (263 / 180) ; Different sensitivy for when aiming down sights. Won't work if you zoom in with sniper scope though. Measurements done at 4K resolution.
-    pixelsPerDegree := scalar / (3840 / A_ScreenWidth) ; Empirical value for converting degrees to pixels with raw input mode and lowest in-game sensitivity.
-    MouseMove(-(degrees * pixelsPerDegree), 0, 0)
+    global driftAccumulatorX, driftAccumulatorY, lastTurnTime
+    if (stopCounting(lastTurnTime) > 500) { ; The player likely already moved their mouse so we should just reset the drift compensation
+        driftAccumulatorX := 0
+        driftAccumulatorY := 0
+    }
+    lastTurnTime := startCounting()
+
+    scalar := GetKeyState("RButton", "P") ? 320.7 / 180 : 262.5 / 180
+    pixelsPerDegree := scalar / (3840 / A_ScreenWidth)
+
+    exactPixelsX := -(degrees * pixelsPerDegree)
+    totalPixelsX := exactPixelsX + driftAccumulatorX
+    moveX := Round(totalPixelsX)
+    driftAccumulatorX := totalPixelsX - moveX
+
+    driftRate := 0.032 / (3840 / A_ScreenWidth)
+
+    driftAccumulatorY += driftRate
+    moveY := 0
+
+    if (driftAccumulatorY >= 1.0) {
+        moveY := -1
+        driftAccumulatorY -= 1
+    }
+
+    MouseMove(moveX, moveY, 0)
 }
 
 convertToCharArray(text) {
@@ -617,11 +715,12 @@ cout(text) {
 }
 
 unpressHorizontalMovementKeys() {
+    KeyDisabler.disableKey("a")
+    KeyDisabler.disableKey("d")
     SendInput("{Blind}{a up}{d up}")
 }
 
 repressHorizontalMovementKeys() {
-    accurateSleep(100)
     KeyDisabler.enableKey("a")
     KeyDisabler.enableKey("d")
     if (GetKeyState("a", "P")) {
@@ -632,7 +731,12 @@ repressHorizontalMovementKeys() {
     }
 }
 
+shouldHandleHorizontalMovementKeys() {
+    return retrieveSetting("Automatic horizontal key handling (experimental)").value && (stopCounting(lastHorizontalMovementKeyReleaseTime) < 200 || (GetKeyState("a", "P") || GetKeyState("d", "P"))) && GetKeyState(retrieveSetting("Sprint keybind").value, "P")
+}
+
 makeSettings() {
+
     HotkeyElement("Sniper rifle keybind", "9", tabs.KEYBINDS)
     HotkeyElement("Heavy weapon keybind", "4", tabs.KEYBINDS)
     HotkeyElement("Sticky bomb keybind", "5", tabs.KEYBINDS)
@@ -652,6 +756,13 @@ makeSettings() {
         global chatOpen := true
     })
     HotkeyElement("Sprint keybind", "lshift", tabs.KEYBINDS)
+
+    HotkeyElement("a keybind", "a", tabs.GENERAL, (*) {
+        lastHorizontalMovementKeyReleaseTime := startCounting()
+    }, true, "~", "up")
+    HotkeyElement("d keybind", "d", tabs.GENERAL, (*) {
+        lastHorizontalMovementKeyReleaseTime := startCounting()
+    }, true, "~", "up")
 
     SettingElement("Use cursor in interaction menu for slightly faster macros", "bool", false, tabs.GENERAL)
     SettingElement("Preserve left click state", "bool", false, tabs.GENERAL)
@@ -888,16 +999,32 @@ makeSettings() {
         }
         c4Keybind := retrieveSetting("Sticky bomb keybind").value
         heavyWeaponKey := retrieveSetting("Heavy weapon keybind").value
-        automaticLButtonHandling := retrieveSetting("Automatic left click handling (buggy)").value && (lastTabSwitchData.weaponKey != c4Keybind || stopCounting(lastTabSwitchData.time) > 300)
+        leftClickHandlingSetting := retrieveSetting("Automatic left click handling (buggy)").value
+        shiftKeybind := retrieveSetting("Sprint keybind").value
+        automaticLButtonHandling := leftClickHandlingSetting && (lastTabSwitchData.weaponKey != c4Keybind || stopCounting(lastTabSwitchData.time) > 390) && weaponKey != c4Keybind && GetKeyState(shiftKeybind, "P")
+        if (automaticLButtonHandling) {
+            unpressHorizontalMovementKeys()
+        }
         if (automaticLButtonHandling) {
             SendInput("{Blind}{lbutton up}")
         }
-        Send("{Blind}{" weaponKey " down}{tab down}")
-        SendInput("{Blind}{" weaponKey " up}")
-        Send("{Blind}{tab up}")
-        if (GetKeyState("LButton", "P") && automaticLButtonHandling) {
-            SendInput("{Blind}{lbutton down}")
+        Send("{Blind}{" weaponKey " down}{tab}")
+        SendInput("{Blind}{" weaponKey " up}{" c4Keybind " up}")
+        if (weaponKey == heavyWeaponKey) {
+            SendInput("{Blind}{WheelDown}") ; automatic zoom out?
         }
+        if (automaticLButtonHandling) {
+            SetTimer(() {
+                if (GetKeyState("LButton", "P")) {
+                    SendInput("{Blind}{lbutton down}")
+                }
+            }, -100)
+        }
+        SetTimer(() {
+            if (shouldHandleHorizontalMovementKeys() && leftClickHandlingSetting) {
+                repressHorizontalMovementKeys()
+            }
+        }, -190)
         global lastTabSwitchData := { time: startCounting(), weaponKey: weaponKey }
         cacheLastMacroExecutionTime()
     }
@@ -915,17 +1042,15 @@ makeSettings() {
         stickyBombKey := retrieveSetting("Sticky bomb keybind").value
         Send("{Blind}{" stickyBombKey " down}")
         frameSleep(2)
-        Send("{Blind}{" heavyWeaponKey " down}{tab down}")
+        Send("{Blind}{" heavyWeaponKey " down}{tab}")
         SendInput("{Blind}{" heavyWeaponKey " up}{" stickyBombKey " up}")
-        Send("{Blind}{tab up}")
         cacheLastMacroExecutionTime()
     })
     HotkeyElement("Sniper Spam", "", tabs.WEAPONSWITCH, (*) {
         sniperRifleKey := retrieveSetting("Sniper rifle keybind").value
         stickyBombKey := retrieveSetting("Sticky bomb keybind").value
-        Send("{Blind}{" stickyBombKey " down}{" sniperRifleKey " down}{tab down}")
+        Send("{Blind}{" stickyBombKey " down}{" sniperRifleKey " down}{tab}")
         SendInput("{Blind}{" sniperRifleKey " up}{" stickyBombKey " up}")
-        Send("{Blind}{tab up}")
         cacheLastMacroExecutionTime()
     })
     SettingElement("Use fully automated spam (extremely buggy)", "bool", false, tabs.WEAPONSWITCH, (newValue, oldValue, *) {
@@ -939,6 +1064,7 @@ makeSettings() {
         }
     })
     SettingElement("Automatic left click handling (buggy)", "bool", false, tabs.WEAPONSWITCH)
+    SettingElement("Automatic horizontal key handling (experimental)", "bool", false, tabs.WEAPONSWITCH)
     SettingElement("Queue double switching", "bool", false, tabs.WEAPONSWITCH)
     HotkeyElement("Automated RPG Spam", "", tabs.WEAPONSWITCH)
     HotkeyElement("Double switch", "", tabs.WEAPONSWITCH, (*) {
@@ -949,19 +1075,31 @@ makeSettings() {
             return
         }
         c4Keybind := retrieveSetting("Sticky bomb keybind").value
-        automaticLButtonHandling := retrieveSetting("Automatic left click handling (buggy)").value && (lastTabSwitchData.weaponKey != c4Keybind || stopCounting(lastTabSwitchData.time) > 300)
+        leftClickHandlingSetting := retrieveSetting("Automatic left click handling (buggy)").value
+        automaticLButtonHandling := leftClickHandlingSetting && (lastTabSwitchData.weaponKey != c4Keybind || stopCounting(lastTabSwitchData.time) > 390) && heavyWeaponKey != c4Keybind
+        if (automaticLButtonHandling) {
+            unpressHorizontalMovementKeys()
+        }
         Send("{Blind}{" heavyWeaponKey "}")
         Send("{Blind}{" heavyWeaponKey " down}")
         if (automaticLButtonHandling) {
             SendInput("{Blind}{lbutton up}")
         }
-        Send("{Blind}{tab down}")
-        SendInput("{Blind}{" heavyWeaponKey " up}")
-        Send("{Blind}{tab up}")
+        Send("{Blind}{tab}")
+        SendInput("{Blind}{" heavyWeaponKey " up}{" c4Keybind " up}")
 
-        if (GetKeyState("LButton", "P") && automaticLButtonHandling) {
-            SendInput("{Blind}{lbutton down}")
+        if (automaticLButtonHandling) {
+            SetTimer(() {
+                if (GetKeyState("LButton", "P")) {
+                    SendInput("{Blind}{lbutton down}")
+                }
+            }, -100)
         }
+        SetTimer(() {
+            if (shouldHandleHorizontalMovementKeys() && leftClickHandlingSetting) {
+                repressHorizontalMovementKeys()
+            }
+        }, -185)
         cacheLastMacroExecutionTime()
     })
     explicitSwitchMethod := (weaponKey, pressAmount, *) {
@@ -975,9 +1113,8 @@ makeSettings() {
                 Send("{Blind}{" weaponKey "}")
             }
         }
-        Send("{Blind}{" weaponKey " down}{tab down}")
+        Send("{Blind}{" weaponKey " down}{tab}")
         SendInput("{Blind}{" fistsKey " up}{" weaponKey " up}")
-        Send("{Blind}{tab up}")
         if (LButtonState) {
             SendInput("{Blind}{lbutton down}")
         }
@@ -989,9 +1126,8 @@ makeSettings() {
     HotkeyElement("Safe heavy weapon swap", "", tabs.WEAPONSWITCH, (*) {
         heavyWeaponKey := retrieveSetting("Heavy weapon keybind").value
         meleeWeaponKey := retrieveSetting("Melee weapon keybind").value
-        Send("{Blind}{" meleeWeaponKey " down}{" heavyWeaponKey " down}{tab down}")
+        Send("{Blind}{" meleeWeaponKey " down}{" heavyWeaponKey " down}{tab}")
         SendInput("{Blind}{" meleeWeaponKey " up}{" heavyWeaponKey " up}")
-        Send("{Blind}{tab up}")
         cacheLastMacroExecutionTime()
     })
 }
@@ -1085,22 +1221,37 @@ class KeyDisabler {
                 return
             }
         }
+        hotkeySetting := settingsManagerInstance.findHotkeyBoundToAKey(key)
+        if (!!hotkeySetting) {
+            hotkeySetting.disabledByKeyDisabler := true
+            hotkeySetting.unregister()
+        }
+
         HotIfWinActive("ahk_class grcWindow")
         Hotkey("*$" key, (*) {
-            ; Nothing
-        }, "On")
+            if (!!hotkeySetting && hotkeySetting.runWhenDisabled) {
+                hotkeySetting.performHotkey()
+            }
+        })
         HotIfWinActive()
-        this.disabledKeys.Push(key)
-
+        this.disabledKeys.Push({ key: key, hotkeySetting: hotkeySetting })
     }
 
     static enableKey(key) {
-        for index, disabledKey in this.disabledKeys {
+        for index, keyObj in this.disabledKeys {
+            disabledKey := keyObj.key
             if (disabledKey == key) {
                 HotIfWinActive("ahk_class grcWindow")
                 Hotkey("*$" key, "Off")
                 HotIfWinActive()
                 this.disabledKeys.RemoveAt(index)
+                if (!!keyObj.hotkeySetting) {
+                    keyObj.hotkeySetting.disabledByKeyDisabler := false
+                    keyObj.hotkeySetting.register()
+                }
+                if (GetKeyState(key, "P")) {
+                    SendInput("{Blind}{" key " down}")
+                }
                 return
             }
         }
