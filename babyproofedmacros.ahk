@@ -74,11 +74,13 @@ doVersionCheck()
 global settingsManagerInstance := SettingsManager()
 global spamManagerInstance := SpamManager()
 
+/*
 SetTimer((*) {
     str := "A state: " KeyState.getKeyState("a") " D state: " KeyState.getKeyState("d") " Time: " startCounting()
     str .= "`nA disabled: " KeyDisabler.isKeyDisabled("a") " D disabled: " KeyDisabler.isKeyDisabled("d")
     ToolTip(str, 0, 0)
 }, 1)
+*/
 
 class SettingsManager {
     __New() {
