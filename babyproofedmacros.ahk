@@ -1044,7 +1044,7 @@ makeSettings() {
             if (shouldHandleHorizontalMovementKeys() && automaticLButtonHandling) {
                 repressHorizontalMovementKeys()
             }
-        }, -190)
+        }, -105)
         global lastTabSwitchData := { time: startCounting(), weaponKey: weaponKey }
         cacheLastMacroExecutionTime()
     }
@@ -1120,7 +1120,7 @@ makeSettings() {
             if (shouldHandleHorizontalMovementKeys() && automaticLButtonHandling) {
                 repressHorizontalMovementKeys()
             }
-        }, -185)
+        }, -100)
         cacheLastMacroExecutionTime()
     })
     explicitSwitchMethod := (weaponKey, pressAmount, *) {
