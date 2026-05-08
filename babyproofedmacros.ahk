@@ -1,4 +1,4 @@
-﻿global macroVersion := "1.0.4.5"
+﻿global macroVersion := "1.0.5"
 ;@Ahk2Exe-AddResource *24 input.manifest, 1
 #Requires AutoHotkey v2.1-alpha.28
 #SingleInstance Force
