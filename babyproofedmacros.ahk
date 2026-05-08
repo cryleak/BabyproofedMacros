@@ -1,9 +1,10 @@
 ﻿global macroVersion := "1.0.4.5"
 ;@Ahk2Exe-AddResource *24 input.manifest, 1
-#Requires AutoHotkey v2.1-alpha.18
+#Requires AutoHotkey v2.1-alpha.28
 #SingleInstance Force
 #Warn All, Off
 #UseHook 1
+#include RAGEKeyMap.ahk
 InstallKeybdHook(1, 1)
 InstallMouseHook(1, 1)
 
@@ -22,9 +23,22 @@ SetWinDelay(-1)
 SetControlDelay(-1)
 DllCall("Winmm\timeBeginPeriod", "UInt", 1)
 
-; I need to create a pointer to store the old resolution value so the function can write to a valid memory address. This variable is never used.
-oldRes := 0
-DllCall("ntdll\ZwSetTimerResolution", "Int", 5000, "Int", 1, "Int*", &oldRes)
+((*) { ; Don't pollute the global namespace with variables that are useless after initialization
+    fullCommandLine := DllCall("GetCommandLine", "str")
+
+    if (!A_IsAdmin || !RegExMatch(fullCommandLine, " /restart(?!\S)")) {
+        try
+        {
+            if A_IsCompiled
+                Run '*RunAs "' A_ScriptFullPath '" /restart'
+            else
+                Run '*RunAs "' A_AhkPath '" /restart "' A_ScriptFullPath '"'
+        }
+        ExitApp
+    }
+    oldRes := 0
+    DllCall("ntdll\ZwSetTimerResolution", "Int", 5000, "Int", 1, "Int*", &oldRes)
+})()
 
 targetDir := A_MyDocuments "\HorribleBaseMacros"
 if !DirExist(targetDir)
@@ -35,12 +49,18 @@ global settings := Map()
 global tabs := {
     GENERAL: "General Macros",
     WEAPONSWITCH: "Weapon switching Macros",
-    KEYBINDS: "In-game keybinds"
+    KEYBINDS: "In-game keybinds",
+    ADVANCED: "Advanced Settings"
 }
 global guiTabs := []
-for key, value in tabs.OwnProps() {
-    guiTabs.Push(value)
-}
+
+((*) {
+    tabOrder := ["GENERAL", "WEAPONSWITCH", "KEYBINDS", "ADVANCED"] ; Apparently Object.OwnProps() returns them in alphabetical order, not the order they were defined in...
+    for key in tabOrder {
+        guiTabs.Push(tabs.%key%)
+    }
+})()
+
 global textOffset := 20 ; Needed as a global variable so the mouse hook can calculate which setting the mouse is hovering over based on the y coordinate of the mouse and the x coordinate of the text elements
 global inCEO := false
 global chatOpen := false
@@ -110,13 +130,13 @@ class SettingsManager {
             global activeTab := guiCtrl.value
         })
 
-        yOffset := 35
+        yOffset := 37
         elementOffset := (textOffset + 400)
         settingYOffset := 20
 
         for tabName in guiTabs {
             tab.UseTab(tabName)
-            settingsGui.Add("Text", "x500 y0") ; Here to fix the layout...
+            settingsGui.Add("Text", "x512 y0") ; Here to fix the layout...
             i := 0
             for setting in settings[tabName] {
                 if (setting.invisible) {
@@ -139,6 +159,8 @@ class SettingsManager {
 
                 try ctrl.Value := setting.value
 
+                setting.ctrl := ctrl
+
                 ctrl.OnEvent(eventName, ObjBindMethod(setting, "handleUpdate"))
             }
         }
@@ -146,9 +168,10 @@ class SettingsManager {
         buttonOffset := 500
         for index, tabName in guiTabs { ; Add multiple buttons so we can make hotkeys less painful and set focus on the button so that the hotkeys don't change when you don't want them to.
             tab.useTab(tabName)
-            settingsGui.Add("Button", "x20 y" buttonOffset " w200", "Update hotkeys and save").OnEvent("Click", (*) => this._updateHotkeys())
-            settingsGui.Add("Button", "x20 y" buttonOffset + yOffset " w200", "Hide this fucking bullshit GUI " index).OnEvent("Click", (*) => settingsGui.Hide())
-            sendInputTextElements.Push(settingsGui.Add("Text", "x24 w400 y" buttonOffset + yOffset * 2, "SendInput: N/A"))
+            settingsGui.Add("Button", "x20 y" buttonOffset " w250", "Update hotkeys and save").OnEvent("Click", (*) => this._updateHotkeys())
+            settingsGui.Add("Button", "x20 y" buttonOffset + 32 " w250", "Automatically copy keybinds from GTA").OnEvent("Click", (*) => this._parseFromGameKeys())
+            settingsGui.Add("Button", "x20 y" buttonOffset + 32 * 2 " w250", "Hide this fucking bullshit GUI " index).OnEvent("Click", (*) => settingsGui.Hide())
+            sendInputTextElements.Push(settingsGui.Add("Text", "x24 w400 y" buttonOffset + 32 * 3, "SendInput: N/A"))
         }
         settingsGui.Show()
         if (InStr(A_ScriptName, ".ahk")) {
@@ -174,17 +197,6 @@ class SettingsManager {
                 this._removeMouseHook()
             }
         }, 100)
-
-        SetTimer((*) {
-            if (WinActive("ahk_class grcWindow")) {
-                this._updateSendInputState()
-            }
-            static gtaOpen := false
-            if (WinExist("ahk_class grcWindow") && !gtaOpen) {
-                InstallKeybdHook(1, 1)
-                gtaOpen := true
-            }
-        }, 1000)
     }
 
     _updateSendInputState() { ; Informational text to show if SendInput is working properly or not
@@ -230,11 +242,12 @@ class SettingsManager {
         try Hotkey("~XButton1", "Off")
         try Hotkey("~XButton2", "Off")
         settingsManagerInstance._reregisterHotkeys()
+        InstallKeybdHook(1, 1)
     }
 
     _mouseClickHandler(*) {
         MouseGetPos(, , , &controlNN, 2)
-        if (!controlNN) {
+        if (!IsSet(controlNN) || !controlNN) {
             this.clicksOnThisControl := 0
             return
         } else if (this.controlLastClicked != controlNN) {
@@ -261,7 +274,7 @@ class SettingsManager {
                 hotkeyName := ControlGetText(GetControlFromCoordinates(textOffset, y), "Horrible Base Macros Settings")
                 setting := retrieveSetting(hotkeyName, true)
                 if (setting == "") {
-                    throw UnsetError("Why isn't this defined? Kill yourself.")
+                    throw UnsetError("Why isn't this defined? Report this ig")
                     return
                 }
                 setting.handleUpdate(controlOverMouse)
@@ -270,6 +283,26 @@ class SettingsManager {
                 return
             }
         }
+    }
+
+    _parseFromGameKeys() {
+        try settingsFile := FileRead(A_MyDocuments . "/Rockstar Games/GTA V/default/control/user.xml")
+        catch {
+            MsgBox("Failed to read game key bindings from the controls file.")
+            return
+        }
+        settingsParser := XMLParser(settingsFile)
+
+        for tabName in guiTabs {
+            for setting in settings[tabName] {
+                if (setting is HotkeyElement && setting.HasProp("xmlName")) {
+                    parsedKey := ConvertFromRAGEToAHK(settingsParser.GetValueOrDefault("//Item[Input='" setting.xmlName "']/Parameters/Item", setting.defaultValue), setting.defaultValue)
+                    setting.ctrl.Value := parsedKey
+                    setting.handleUpdate(setting.ctrl)
+                }
+            }
+        }
+        MsgBox("Set keybinds according to the in-game keybinds config file. Please report any inaccuracies to me.")
     }
 
     _updateHotkeys() {
@@ -351,6 +384,10 @@ class HotkeyElement extends SettingElement {
         this.hotkeyValueAddendumPost := hotkeyValueAddendumPost == "" ? "" : " " hotkeyValueAddendumPost
         this.disabledByKeyDisabler := false
         this.runWhenDisabled := runWhenDisabled
+    }
+
+    setXMLName(name) {
+        this.xmlName := name
     }
 
     register() {
@@ -588,7 +625,7 @@ retrieveSetting(settingName, ignoreErrors := false) {
         for setting in settings[tabName] {
             if (setting.name == settingName) {
                 if (setting is HotkeyElement && setting.value == "" && !ignoreErrors) {
-                    throw UnsetError("Hotkey setting " setting.name " has no value set and we are trying to get the fucking value!")
+                    throw UnsetError("Hotkey setting " setting.name " is unbound. Please bind it to the proper key before trying to use a macro that relies on it.")
                 }
                 return setting
             }
@@ -666,9 +703,7 @@ isCursorHidden() {
 }
 
 isRunningInExeContainer() {
-    fileName := A_ScriptName
-
-    return InStr(fileName, ".exe")
+    return A_IsCompiled
 }
 
 ; Compensates for fractional pixels and turns a certain amount of degrees
@@ -763,26 +798,25 @@ shouldHandleHorizontalMovementKeys() {
 }
 
 makeSettings() {
-
-    HotkeyElement("Sniper rifle keybind", "9", tabs.KEYBINDS)
-    HotkeyElement("Heavy weapon keybind", "4", tabs.KEYBINDS)
-    HotkeyElement("Sticky bomb keybind", "5", tabs.KEYBINDS)
-    HotkeyElement("Pistol keybind", "6", tabs.KEYBINDS)
-    HotkeyElement("Shotgun keybind", "3", tabs.KEYBINDS)
-    HotkeyElement("Rifle keybind", "8", tabs.KEYBINDS)
-    HotkeyElement("SMG keybind", "7", tabs.KEYBINDS)
-    HotkeyElement("Fists keybind", "1", tabs.KEYBINDS)
-    HotkeyElement("Melee weapon keybind", "2", tabs.KEYBINDS)
-    HotkeyElement("Interaction menu keybind", "m", tabs.KEYBINDS)
-    HotkeyElement("EWO Animation keybind", "capslock", tabs.KEYBINDS)
-    HotkeyElement("Melee punch keybind", "r", tabs.KEYBINDS)
-    HotkeyElement("Look behind keybind", "c", tabs.KEYBINDS)
+    HotkeyElement("Sniper rifle keybind", "9", tabs.KEYBINDS).setXMLName("INPUT_SELECT_WEAPON_SNIPER")
+    HotkeyElement("Heavy weapon keybind", "4", tabs.KEYBINDS).setXMLName("INPUT_SELECT_WEAPON_HEAVY")
+    HotkeyElement("Sticky bomb keybind", "5", tabs.KEYBINDS).setXMLName("INPUT_SELECT_WEAPON_SPECIAL")
+    HotkeyElement("Pistol keybind", "6", tabs.KEYBINDS).setXMLName("INPUT_SELECT_WEAPON_HANDGUN")
+    HotkeyElement("Shotgun keybind", "3", tabs.KEYBINDS).setXMLName("INPUT_SELECT_WEAPON_SHOTGUN")
+    HotkeyElement("Rifle keybind", "8", tabs.KEYBINDS).setXMLName("INPUT_SELECT_WEAPON_AUTO_RIFLE")
+    HotkeyElement("SMG keybind", "7", tabs.KEYBINDS).setXMLName("INPUT_SELECT_WEAPON_SMG")
+    HotkeyElement("Fists keybind", "1", tabs.KEYBINDS).setXMLName("INPUT_SELECT_WEAPON_UNARMED")
+    HotkeyElement("Melee weapon keybind", "2", tabs.KEYBINDS).setXMLName("INPUT_SELECT_WEAPON_MELEE")
+    HotkeyElement("Interaction menu keybind", "m", tabs.KEYBINDS).setXMLName("INPUT_INTERACTION_MENU")
+    HotkeyElement("EWO Animation keybind", "capslock", tabs.KEYBINDS).setXMLName("INPUT_SPECIAL_ABILITY_PC")
+    HotkeyElement("Melee punch keybind", "r", tabs.KEYBINDS).setXMLName("INPUT_MELEE_ATTACK_LIGHT")
+    HotkeyElement("Look behind keybind", "c", tabs.KEYBINDS).setXMLName("INPUT_LOOK_BEHIND")
     HotkeyElement("Chat keybind (automatically suspend macros when chat open)", "", tabs.KEYBINDS, (*) {
         thisKeybind := retrieveSetting("Chat keybind (automatically suspend macros when chat open)").value
         Send("{Blind}{" thisKeybind "}")
         global chatOpen := true
     })
-    HotkeyElement("Sprint keybind", "lshift", tabs.KEYBINDS)
+    HotkeyElement("Sprint keybind", "lshift", tabs.KEYBINDS).setXMLName("INPUT_SPRINT")
 
     ; These are dummy keybinds to force them to go through the KeyState handler instead of having to rely on regular GetKeyState
     HotkeyElement("a keybind", "a", tabs.GENERAL, (*) {
@@ -793,7 +827,7 @@ makeSettings() {
     }, true, "~", "up")
 
     SettingElement("Use cursor in interaction menu for slightly faster macros", "bool", false, tabs.GENERAL)
-    SettingElement("Preserve left click state", "bool", false, tabs.GENERAL)
+    SettingElement("Preserve left click state", "bool", true, tabs.ADVANCED)
     HotkeyElement("Ammo", "", tabs.GENERAL, (*) {
         shouldUseCursor := retrieveSetting("Use cursor in interaction menu for slightly faster macros").value
         interactionKey := retrieveSetting("Interaction menu keybind").value
@@ -900,11 +934,11 @@ makeSettings() {
         }
         SetCapsLockState("Off")
     })
-    SettingElement("EWO delay (ms) (for cleaner looking ragdoll)", "string", "0", tabs.GENERAL)
-    SettingElement("Shoot before EWOing", "bool", false, tabs.GENERAL)
-    SettingElement("Use experimental EWO macro (slower and can't be customized)", "bool", false, tabs.GENERAL)
-    SettingElement("C4 Mode", "bool", false, tabs.GENERAL)
-    HotkeyElement("Instant EWO", "", tabs.GENERAL, (*) {
+    SettingElement("EWO delay (ms) (for cleaner looking ragdoll)", "string", "0", tabs.ADVANCED)
+    SettingElement("Shoot before EWOing", "bool", true, tabs.ADVANCED)
+    SettingElement("Use experimental EWO macro (slower and can't be customized)", "bool", false, tabs.ADVANCED)
+    SettingElement("C4 Mode", "bool", false, tabs.ADVANCED)
+    HotkeyElement("Instant EWO", "", tabs.ADVANCED, (*) {
         c4Mode := retrieveSetting("C4 Mode").value
         if (c4Mode) {
             thisKeybind := retrieveSetting("Instant EWO").value
@@ -1011,10 +1045,6 @@ makeSettings() {
         }
         cacheLastMacroExecutionTime()
     })
-    SettingElement("Enable macro speed profiling (only useful for developers)", "bool", false, tabs.GENERAL, , isRunningInExeContainer() ? true : false)
-    if (isRunningInExeContainer()) {
-        retrieveSetting("Enable macro speed profiling (only useful for developers)").value := false
-    }
 
     quickSwitchMethod := (keybind, *) {
         weaponKey := retrieveSetting(keybind).value
@@ -1046,12 +1076,12 @@ makeSettings() {
                     SendInput("{Blind}{lbutton down}")
                 }
             }, -100)
-        }
-        SetTimer(() {
-            if (shouldHandleHorizontalMovementKeys && automaticLButtonHandling) {
-                repressHorizontalMovementKeys()
+            if (shouldHandleHorizontalMovementKeys) {
+                SetTimer(() {
+                    repressHorizontalMovementKeys()
+                }, -105)
             }
-        }, -105)
+        }
         cacheLastMacroExecutionTime()
         global lastTabSwitchData := { time: startCounting(), weaponKey: weaponKey }
     }
@@ -1080,7 +1110,7 @@ makeSettings() {
         SendInput("{Blind}{" sniperRifleKey " up}{" stickyBombKey " up}")
         cacheLastMacroExecutionTime()
     })
-    SettingElement("Use fully automated spam (extremely buggy)", "bool", false, tabs.WEAPONSWITCH, (newValue, oldValue, *) {
+    SettingElement("Use fully automated spam (extremely buggy)", "bool", false, tabs.ADVANCED, (newValue, oldValue, *) {
         if (oldValue == newValue) {
             return
         }
@@ -1090,10 +1120,10 @@ makeSettings() {
             SetTimer(ObjBindMethod(spamManagerInstance, "runLoop"), 0)
         }
     })
-    SettingElement("Automatic left click handling (buggy)", "bool", false, tabs.WEAPONSWITCH)
-    SettingElement("Automatic horizontal key handling (experimental)", "bool", false, tabs.WEAPONSWITCH)
-    SettingElement("Queue double switching", "bool", false, tabs.WEAPONSWITCH)
-    HotkeyElement("Automated RPG Spam", "", tabs.WEAPONSWITCH)
+    SettingElement("Automatic left click handling (buggy)", "bool", false, tabs.ADVANCED)
+    SettingElement("Automatic horizontal key handling (experimental)", "bool", false, tabs.ADVANCED)
+    SettingElement("Queue double switching", "bool", false, tabs.ADVANCED)
+    HotkeyElement("Automated RPG Spam", "", tabs.ADVANCED)
     HotkeyElement("Double switch", "", tabs.WEAPONSWITCH, (*) {
         heavyWeaponKey := retrieveSetting("Heavy weapon keybind").value
         useAutomatedSpam := retrieveSetting("Use fully automated spam (extremely buggy)").value
@@ -1123,12 +1153,12 @@ makeSettings() {
                     SendInput("{Blind}{lbutton down}")
                 }
             }, -100)
-        }
-        SetTimer(() {
-            if (shouldHandleHorizontalMovementKeys && automaticLButtonHandling) {
-                repressHorizontalMovementKeys()
+            if (shouldHandleHorizontalMovementKeys) {
+                SetTimer(() {
+                    repressHorizontalMovementKeys()
+                }, -100)
             }
-        }, -100)
+        }
         cacheLastMacroExecutionTime()
         global lastTabSwitchData := { time: startCounting(), weaponKey: heavyWeaponKey }
     })
@@ -1150,16 +1180,24 @@ makeSettings() {
         }
         cacheLastMacroExecutionTime()
     }
-    HotkeyElement("Explicit RPG Switch", "", tabs.WEAPONSWITCH, (*) => explicitSwitchMethod(retrieveSetting("Heavy weapon keybind").value, 1))
-    HotkeyElement("Explicit Homing Launcher Switch", "", tabs.WEAPONSWITCH, (*) => explicitSwitchMethod(retrieveSetting("Heavy weapon keybind").value, 2))
-    HotkeyElement("Explicit Grenade Launcher Switch", "", tabs.WEAPONSWITCH, (*) => explicitSwitchMethod(retrieveSetting("Heavy weapon keybind").value, 3))
-    HotkeyElement("Safe heavy weapon swap", "", tabs.WEAPONSWITCH, (*) {
+    HotkeyElement("Explicit RPG Switch", "", tabs.ADVANCED, (*) => explicitSwitchMethod(retrieveSetting("Heavy weapon keybind").value, 1))
+    HotkeyElement("Explicit Homing Launcher Switch", "", tabs.ADVANCED, (*) => explicitSwitchMethod(retrieveSetting("Heavy weapon keybind").value, 2))
+    HotkeyElement("Explicit Grenade Launcher Switch", "", tabs.ADVANCED, (*) => explicitSwitchMethod(retrieveSetting("Heavy weapon keybind").value, 3))
+    HotkeyElement("Safe heavy weapon swap", "", tabs.ADVANCED, (*) {
         heavyWeaponKey := retrieveSetting("Heavy weapon keybind").value
         meleeWeaponKey := retrieveSetting("Melee weapon keybind").value
         Send("{Blind}{" meleeWeaponKey " down}{" heavyWeaponKey " down}{tab}")
         SendInput("{Blind}{" meleeWeaponKey " up}{" heavyWeaponKey " up}")
         cacheLastMacroExecutionTime()
     })
+
+    SettingElement("Enable macro speed profiling (only useful for developers)", "bool", false, tabs.ADVANCED, , isRunningInExeContainer() ? true : false)
+    if (isRunningInExeContainer()) {
+        retrieveSetting("Enable macro speed profiling (only useful for developers)").value := false
+    }
+    HotkeyElement("Test shit", "", tabs.ADVANCED, (*) {
+
+    }, isRunningInExeContainer() ? true : false)
 }
 
 class SpamManager {
@@ -1217,7 +1255,6 @@ class SpamManager {
                     accurateSleep(50)
                 }
             }
-            Sleep(-1)
             return
         } else {
             this.customSwaps := []
@@ -1319,3 +1356,46 @@ class KeyState {
         return this.keyStates[key]
     }
 }
+
+class XMLParser {
+    __New(xmlString) {
+        this.doc := ComObject("MSXML2.DOMDocument.6.0")
+        this.doc.async := false
+        this.doc.loadXML(xmlString)
+
+        if (this.doc.parseError.errorCode != 0) {
+            throw Error("XML Parse Error: " this.doc.parseError.reason)
+        }
+    }
+
+    GetValueOrDefault(xpath, default := "") {
+        try {
+            node := this.doc.selectSingleNode(xpath)
+            if (node) {
+                return node.text
+            }
+        }
+        return default
+    }
+
+    GetAttributeOrDefault(xpath, attributeName, default := "") {
+        try {
+            node := this.doc.selectSingleNode(xpath)
+            if (node && node.attributes.getNamedItem(attributeName)) {
+                return node.attributes.getNamedItem(attributeName).text
+            }
+        }
+        return default
+    }
+}
+
+; Suppressing stupid behavior imposed by recent AutoHotkey 2.1 Alpha versions
+OnError((exception, mode) {
+    message := exception.Message
+
+    if (message == "No value was returned.") {
+        return -1
+    }
+
+    return 0
+})
