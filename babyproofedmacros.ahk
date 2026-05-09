@@ -205,7 +205,7 @@ class SettingsManager {
         /*
         Low level keyboard hooks can be hooked in a specific order that causes every individual input in a SendInput stream to take an entire game frame to execute, making SendInput the same speed as SendEvent.
         This is impossible to fix without removing the offending keyboard hook (practically impossible since hooks are private for the application that created it only, unless you want to create something resembling an antivirus...
-        or create a list of known offending applications and DLL inject into them, which is absurdly complicated and unstable).
+        or create a list of known offending applications and inject into them, which is absurdly complicated and unstable).
         If SendInput is failing, you need to figure out what application is installing a low level keyboard hook other than AutoHotkey and GTA and close the application.
         You could likely fix this by forking Wine, but that's only for Linux only obviously.
         TLDR: Windows API is fucking stupid.
@@ -296,7 +296,7 @@ class SettingsManager {
         for tabName in guiTabs {
             for setting in settings[tabName] {
                 if (setting is HotkeyElement && setting.HasProp("xmlName")) {
-                    parsedKey := ConvertFromRAGEToAHK(settingsParser.GetValueOrDefault("//Item[Input='" setting.xmlName "']/Parameters/Item", setting.defaultValue), setting.defaultValue)
+                    parsedKey := MapRAGEKeyToAHKKey(settingsParser.GetValueOrDefault("//Item[Input='" setting.xmlName "']/Parameters/Item", setting.defaultValue), setting.defaultValue)
                     setting.ctrl.Value := parsedKey
                     setting.handleUpdate(setting.ctrl)
                 }
@@ -811,11 +811,11 @@ makeSettings() {
     HotkeyElement("EWO Animation keybind", "capslock", tabs.KEYBINDS).setXMLName("INPUT_SPECIAL_ABILITY_PC")
     HotkeyElement("Melee punch keybind", "r", tabs.KEYBINDS).setXMLName("INPUT_MELEE_ATTACK_LIGHT")
     HotkeyElement("Look behind keybind", "c", tabs.KEYBINDS).setXMLName("INPUT_LOOK_BEHIND")
-    HotkeyElement("Chat keybind (automatically suspend macros when chat open)", "", tabs.KEYBINDS, (*) {
+    HotkeyElement("Chat keybind (automatically suspend macros when chat open)", "t", tabs.KEYBINDS, (*) {
         thisKeybind := retrieveSetting("Chat keybind (automatically suspend macros when chat open)").value
         Send("{Blind}{" thisKeybind "}")
         global chatOpen := true
-    })
+    }).setXMLName("INPUT_MP_TEXT_CHAT_ALL")
     HotkeyElement("Sprint keybind", "lshift", tabs.KEYBINDS).setXMLName("INPUT_SPRINT")
 
     ; These are dummy keybinds to force them to go through the KeyState handler instead of having to rely on regular GetKeyState
