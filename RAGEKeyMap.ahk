@@ -51,8 +51,8 @@ global RAGE_INPUT_MAP := Map(
     "IOM_WHEEL_DOWN", "WheelDown"
 )
 
-MapRAGEKeyToAHKKey(rageName, default := "Unknown") {
+MapRAGEKeyToAHKKey(rageName) {
     if RAGE_INPUT_MAP.Has(rageName)
         return RAGE_INPUT_MAP[rageName]
-    return default
+    return rageName
 }

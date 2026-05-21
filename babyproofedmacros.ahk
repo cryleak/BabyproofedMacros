@@ -1,4 +1,4 @@
-﻿global macroVersion := "1.0.5"
+﻿global macroVersion := "1.0.5.1"
 ;@Ahk2Exe-AddResource *24 input.manifest, 1
 #Requires AutoHotkey v2.1-alpha.28
 #SingleInstance Force
@@ -296,7 +296,7 @@ class SettingsManager {
         for tabName in guiTabs {
             for setting in settings[tabName] {
                 if (setting is HotkeyElement && setting.HasProp("xmlName")) {
-                    parsedKey := MapRAGEKeyToAHKKey(settingsParser.GetValueOrDefault("//Item[Input='" setting.xmlName "']/Parameters/Item", setting.defaultValue), setting.defaultValue)
+                    parsedKey := MapRAGEKeyToAHKKey(settingsParser.GetValueOrDefault("//Item[Input='" setting.xmlName "']/Parameters/Item", setting.defaultValue))
                     setting.ctrl.Value := parsedKey
                     setting.handleUpdate(setting.ctrl)
                 }
@@ -811,6 +811,7 @@ makeSettings() {
     HotkeyElement("EWO Animation keybind", "capslock", tabs.KEYBINDS).setXMLName("INPUT_SPECIAL_ABILITY_PC")
     HotkeyElement("Melee punch keybind", "r", tabs.KEYBINDS).setXMLName("INPUT_MELEE_ATTACK_LIGHT")
     HotkeyElement("Look behind keybind", "c", tabs.KEYBINDS).setXMLName("INPUT_LOOK_BEHIND")
+    HotkeyElement("Weapon wheel keybind", "tab", tabs.KEYBINDS).setXMLName("INPUT_SELECT_WEAPON")
     HotkeyElement("Chat keybind (automatically suspend macros when chat open)", "t", tabs.KEYBINDS, (*) {
         thisKeybind := retrieveSetting("Chat keybind (automatically suspend macros when chat open)").value
         Send("{Blind}{" thisKeybind "}")
@@ -883,7 +884,7 @@ makeSettings() {
             SetMouseDelay(1)
             BlockInput("On")
             Send("{Blind}{lbutton down}")
-            SendInput("{Blind}{s up}{" lookBehindKey " down}{enter down}{a up}{" interactionKey " down}{" sprintKey " up}{lshift up}{w up}{rbutton up}{" meleePunchKey " down}{lbutton up}{d up}{tab up}")
+            SendInput("{Blind}{s up}{" lookBehindKey " down}{enter down}{a up}{" interactionKey " down}{" sprintKey " up}{lshift up}{w up}{rbutton up}{" meleePunchKey " down}{lbutton up}{d up}")
             Send("{Blind}{" interactionKey " up}{up}{up}{" animationKey "}")
             frameSleep(1)
             SendInput("{enter up}")
@@ -892,7 +893,8 @@ makeSettings() {
             BlockInput("Off")
             SetMouseDelay(-1)
         } else {
-            ewoDelay := retrieveSetting("EWO delay (ms) (for cleaner looking ragdoll)").value
+            ewoDelay := 0
+            try ewoDelay := Number(retrieveSetting("EWO delay (ms) (for cleaner looking ragdoll)").value)
             shouldShoot := retrieveSetting("Shoot before EWOing").value
 
             shouldSleep := 0
@@ -911,13 +913,8 @@ makeSettings() {
 
             Send("{Blind}{" interactionKey " up}{up down}")
             SendInput("{Blind}{" animationKey " up}")
-            Send("{Blind}{up up}")
-            if (isCursorHidden()) {
-                SendInput("{Blind}{WheelUp}")
-            } else {
-                Send("{Blind}{up down}")
-            }
-            if (ewoDelay != "" && ewoDelay > 0) {
+            Send("{Blind}{up up}{up down}")
+            if (ewoDelay > 0) {
                 timeDelta := stopCounting(startTime)
                 remainingTime := ewoDelay - timeDelta
                 if (remainingTime >= 0.5) {
@@ -1059,13 +1056,14 @@ makeSettings() {
         shiftKeybind := retrieveSetting("Sprint keybind").value
         automaticLButtonHandling := leftClickHandlingSetting && (lastTabSwitchData.weaponKey != c4Keybind || stopCounting(lastTabSwitchData.time) > 390) && weaponKey != c4Keybind && KeyState.getKeyState(shiftKeybind)
         shouldHandleHorizontalMovementKeys := retrieveSetting("Automatic horizontal key handling (experimental)").value
+        weaponWheelKey := retrieveSetting("Weapon wheel keybind").value
         if (automaticLButtonHandling && shouldHandleHorizontalMovementKeys) {
             unpressHorizontalMovementKeys()
         }
         if (automaticLButtonHandling) {
             SendInput("{Blind}{lbutton up}")
         }
-        Send("{Blind}{" weaponKey " down}{tab}")
+        Send("{Blind}{" weaponKey " down}{" weaponWheelKey "}")
         SendInput("{Blind}{" weaponKey " up}")
         if (weaponKey == heavyWeaponKey) {
             SendInput("{Blind}{WheelDown}") ; automatic zoom out?
@@ -1097,16 +1095,18 @@ makeSettings() {
     HotkeyElement("RPG Spam", "", tabs.WEAPONSWITCH, (*) {
         heavyWeaponKey := retrieveSetting("Heavy weapon keybind").value
         stickyBombKey := retrieveSetting("Sticky bomb keybind").value
+        weaponWheelKey := retrieveSetting("Weapon wheel keybind").value
         Send("{Blind}{" stickyBombKey " down}")
         frameSleep(2)
-        Send("{Blind}{" heavyWeaponKey " down}{tab}")
+        Send("{Blind}{" heavyWeaponKey " down}{" weaponWheelKey "}")
         SendInput("{Blind}{" heavyWeaponKey " up}{" stickyBombKey " up}")
         cacheLastMacroExecutionTime()
     })
     HotkeyElement("Sniper Spam", "", tabs.WEAPONSWITCH, (*) {
         sniperRifleKey := retrieveSetting("Sniper rifle keybind").value
         stickyBombKey := retrieveSetting("Sticky bomb keybind").value
-        Send("{Blind}{" stickyBombKey " down}{" sniperRifleKey " down}{tab}")
+        weaponWheelKey := retrieveSetting("Weapon wheel keybind").value
+        Send("{Blind}{" stickyBombKey " down}{" sniperRifleKey " down}{" weaponWheelKey "}")
         SendInput("{Blind}{" sniperRifleKey " up}{" stickyBombKey " up}")
         cacheLastMacroExecutionTime()
     })
@@ -1136,6 +1136,7 @@ makeSettings() {
         sprintKeybind := retrieveSetting("Sprint keybind").value
         automaticLButtonHandling := leftClickHandlingSetting && (lastTabSwitchData.weaponKey != c4Keybind || stopCounting(lastTabSwitchData.time) > 390) && heavyWeaponKey != c4Keybind && KeyState.getKeyState(sprintKeybind)
         shouldHandleHorizontalMovementKeys := retrieveSetting("Automatic horizontal key handling (experimental)").value
+        weaponWheelKey := retrieveSetting("Weapon wheel keybind").value
         if (automaticLButtonHandling && shouldHandleHorizontalMovementKeys) {
             unpressHorizontalMovementKeys()
         }
@@ -1144,7 +1145,7 @@ makeSettings() {
         if (automaticLButtonHandling) {
             SendInput("{Blind}{lbutton up}")
         }
-        Send("{Blind}{tab}")
+        Send("{Blind}{" weaponWheelKey "}")
         SendInput("{Blind}{" heavyWeaponKey " up}")
 
         if (automaticLButtonHandling) {
@@ -1163,17 +1164,18 @@ makeSettings() {
         global lastTabSwitchData := { time: startCounting(), weaponKey: heavyWeaponKey }
     })
     explicitSwitchMethod := (weaponKey, pressAmount, *) {
+        fistsKey := retrieveSetting("Fists keybind").value
+        weaponWheelKey := retrieveSetting("Weapon wheel keybind").value
         LButtonState := GetKeyState("LButton", "P")
         SendInput("{Blind}{lbutton up}")
         KeyDisabler.disableKey("LButton")
-        fistsKey := retrieveSetting("Fists keybind").value
         Send("{Blind}{" fistsKey " down}")
         if (pressAmount > 1) {
             loop pressAmount - 1 {
                 Send("{Blind}{" weaponKey "}")
             }
         }
-        Send("{Blind}{" weaponKey " down}{tab}")
+        Send("{Blind}{" weaponKey " down}{" weaponWheelKey "}")
         SendInput("{Blind}{" fistsKey " up}{" weaponKey " up}")
         if (LButtonState) {
             SendInput("{Blind}{lbutton down}")
@@ -1186,7 +1188,8 @@ makeSettings() {
     HotkeyElement("Safe heavy weapon swap", "", tabs.ADVANCED, (*) {
         heavyWeaponKey := retrieveSetting("Heavy weapon keybind").value
         meleeWeaponKey := retrieveSetting("Melee weapon keybind").value
-        Send("{Blind}{" meleeWeaponKey " down}{" heavyWeaponKey " down}{tab}")
+        weaponWheelKey := retrieveSetting("Weapon wheel keybind").value
+        Send("{Blind}{" meleeWeaponKey " down}{" heavyWeaponKey " down}{" weaponWheelKey "}")
         SendInput("{Blind}{" meleeWeaponKey " up}{" heavyWeaponKey " up}")
         cacheLastMacroExecutionTime()
     })
@@ -1228,6 +1231,7 @@ class SpamManager {
         stickyBombKey := retrieveSetting("Sticky bomb keybind").value
         heavyWeaponKey := retrieveSetting("Heavy weapon keybind").value
         automatedSpamKey := retrieveSetting("Automated RPG Spam", true).value
+        weaponWheelKey := retrieveSetting("Weapon wheel keybind").value
         if (!automatedSpamKey) {
             return
         }
@@ -1246,7 +1250,7 @@ class SpamManager {
                     Send("{Blind}{" action.weaponKey "}")
                 }
             }
-            Send("{Blind}{" action.weaponKey " down}{tab}")
+            Send("{Blind}{" action.weaponKey " down}{" weaponWheelKey "}")
             SendInput("{Blind}{" action.weaponKey " up}{" stickyBombKey " up}")
             this.timeUntilSwapAvailable := startCounting() + (action.swapToSticky ? this.spamDelay : this.quickSwitchDelay)
             if (lbuttonState) {
