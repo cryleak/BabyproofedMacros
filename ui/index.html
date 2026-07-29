@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Babyproofed Macros</title>
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    try {
+      document.documentElement.dataset.colorTheme = localStorage.getItem("bpm-ui-color") || "monochrome";
+      const savedLayout = localStorage.getItem("bpm-ui-layout");
+      document.documentElement.dataset.layout = ["orbit", "toprail"].includes(savedLayout) ? savedLayout : "orbit";
+    } catch (_) {
+      document.documentElement.dataset.colorTheme = "monochrome";
+      document.documentElement.dataset.layout = "orbit";
+    }
+  </script>
+</head>
+<body>
+  <div class="ambient ambient-a"></div>
+  <div class="ambient ambient-b"></div>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">B</div>
+        <div class="brand-copy">
+          <div class="brand-name">Babyproofed</div>
+          <div class="brand-subtitle">Macros control center</div>
+        </div>
+      </div>
+
+      <nav id="navigation" class="navigation" aria-label="Settings sections"></nav>
+
+      <section class="theme-switcher" aria-labelledby="appearance-title">
+        <div class="theme-switcher-top">
+          <span id="appearance-title" class="theme-switcher-label">Appearance</span>
+          <span class="theme-switcher-spark" aria-hidden="true">✦</span>
+        </div>
+        <div class="appearance-picker">
+          <div class="appearance-picker-label">Color scheme</div>
+          <div class="theme-select-shell" data-appearance-kind="color">
+            <span id="color-swatch" class="theme-swatch" aria-hidden="true"></span>
+            <button id="color-select" class="theme-select" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose color scheme">
+              <span id="color-select-name" class="theme-select-name">Monochrome</span>
+            </button>
+            <span class="theme-select-chevron" aria-hidden="true">⌄</span>
+            <div id="color-menu" class="theme-menu" role="listbox" aria-label="Color schemes" hidden></div>
+          </div>
+        </div>
+        <div class="appearance-picker">
+          <div class="appearance-picker-label">Layout philosophy</div>
+          <div class="theme-select-shell" data-appearance-kind="layout">
+            <span id="layout-swatch" class="theme-swatch" aria-hidden="true"></span>
+            <button id="layout-select" class="theme-select" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose layout">
+              <span id="layout-select-name" class="theme-select-name">Orbit Station</span>
+            </button>
+            <span class="theme-select-chevron" aria-hidden="true">⌄</span>
+            <div id="layout-menu" class="theme-menu" role="listbox" aria-label="Layouts" hidden></div>
+          </div>
+        </div>
+      </section>
+
+      <div class="sidebar-footer">
+        <div class="runtime-pill"><span class="status-dot"></span><span id="runtime-label">Engine ready</span></div>
+        <div id="version-label" class="version-label">v—</div>
+      </div>
+    </aside>
+
+    <main class="main-panel">
+      <header class="topbar">
+        <div class="topbar-copy">
+          <div id="breadcrumb" class="eyebrow">SETTINGS</div>
+          <h1 id="page-title">General Macros</h1>
+          <p id="page-description">Tune your macros and make them feel exactly right in-game.</p>
+        </div>
+        <div class="topbar-actions">
+          <button id="hide-button" class="button button-quiet">Hide to tray</button>
+          <div id="dirty-badge" class="dirty-badge" hidden>Unsaved changes</div>
+        </div>
+      </header>
+
+      <section id="content" class="content" aria-live="polite"></section>
+
+      <footer class="action-bar">
+        <div class="status-copy">
+          <span id="save-status" class="save-status">All changes saved</span>
+          <span id="send-input-status" class="send-input-status">SendInput status unavailable</span>
+        </div>
+        <div class="action-buttons">
+          <button id="discard-button" class="button button-quiet" disabled>Discard</button>
+          <button id="import-button" class="button button-secondary">Import GTA keybinds</button>
+          <button id="save-button" class="button button-primary" disabled>Save changes</button>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <div id="toast-region" class="toast-region" aria-live="assertive"></div>
+  <div id="update-layer" class="update-layer" hidden>
+    <div class="update-dialog" role="dialog" aria-modal="true" aria-labelledby="update-title" aria-describedby="update-copy">
+      <div class="update-orbit"></div>
+      <div class="update-header">
+        <div class="eyebrow">SOFTWARE UPDATE</div>
+        <div class="update-badge">NEW BUILD</div>
+      </div>
+      <div class="update-symbol" aria-hidden="true">↗</div>
+      <h2 id="update-title">A sharper build is ready</h2>
+      <p id="update-copy">Download the latest version and Babyproofed Macros will replace this executable and restart automatically. Saved settings will stay in place.</p>
+      <div class="update-versions" aria-label="Version comparison">
+        <div class="update-version"><span>Installed</span><strong id="update-current-version">v—</strong></div>
+        <div class="update-version-arrow" aria-hidden="true">→</div>
+        <div class="update-version"><span>Latest</span><strong id="update-latest-version">v—</strong></div>
+      </div>
+      <div id="update-status" class="update-status" role="status" aria-live="polite">Your saved settings and customizations will stay in place.</div>
+      <div class="update-actions">
+        <button id="update-cancel" class="button button-quiet" type="button">Cancel</button>
+        <button id="update-install" class="button button-primary" type="button">Download &amp; restart</button>
+      </div>
+    </div>
+  </div>
+  <div id="capture-layer" class="capture-layer" hidden>
+    <div class="capture-dialog" role="dialog" aria-modal="true" aria-labelledby="capture-title">
+      <div class="capture-orbit"></div>
+      <div class="capture-header">
+        <div class="eyebrow">HOTKEY CAPTURE</div>
+        <div class="capture-listening"><span class="capture-listening-dot"></span> Listening</div>
+      </div>
+      <div class="capture-symbol" aria-hidden="true">⌘</div>
+      <h2 id="capture-title">Build your hotkey</h2>
+      <p id="capture-copy">Hold any modifiers, then press the key you want to use.</p>
+      <div class="capture-binding-label">Binding to <strong id="capture-target">this macro</strong></div>
+      <div class="capture-preview" aria-live="polite">
+        <div id="capture-chips" class="capture-chips"></div>
+        <div id="capture-preview-value" class="capture-preview-value">—</div>
+      </div>
+      <div id="capture-state" class="capture-state">Listening for your next input</div>
+      <div class="capture-actions">
+        <button id="capture-unbind" class="button button-secondary capture-unbind" type="button">Unbind key</button>
+        <button id="capture-cancel" class="button button-quiet" type="button">Cancel capture</button>
+        <div class="capture-cancel-hint">Press Esc to cancel</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
