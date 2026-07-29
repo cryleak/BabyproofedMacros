@@ -1,4 +1,4 @@
-﻿global macroVersion := "1.1.0.0"
+﻿global macroVersion := "1.1.0.1"
 #Requires AutoHotkey v2.1-alpha.28
 #SingleInstance Force
 #Warn All, Off
@@ -871,11 +871,12 @@ CheckForUpdate() {
     return JsonStringify(Map("ok", 1, "compiled", 0, "available", 0, "currentVersion", macroVersion))
   }
 
-  versionUrl := "https://raw.githubusercontent.com/cryleak/BabyproofedMacros/refs/heads/main/babyproofedmacros.ahk"
+  versionUrl := "https://raw.githubusercontent.com/cryleak/BabyproofedMacros/refs/heads/main/babyproofedmacros.ahk?cache=" A_NowUTC
   try {
     whr := ComObject("WinHttp.WinHttpRequest.5.1")
     whr.Open("GET", versionUrl, false)
     whr.SetRequestHeader("User-Agent", "BabyproofedMacros/" macroVersion)
+    whr.SetRequestHeader("Cache-Control", "no-cache")
     whr.SetTimeouts(3000, 5000, 5000, 10000)
     whr.Send()
     if (whr.Status < 200 || whr.Status >= 300) {
