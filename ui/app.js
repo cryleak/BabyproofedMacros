@@ -609,10 +609,12 @@
     },
 
     async finishCapture(value) {
-      if (!this.capture) return;
-      const { setting } = this.capture;
+      if (!this.capture || this.capture.unbinding) return;
+      const capture = this.capture;
+      const { setting } = capture;
       try {
         await this.call("setSetting", setting.name, value);
+        if (this.capture !== capture || capture.unbinding) return;
         setting.value = value;
         this.dirty = true;
         this.closeCapture();
@@ -624,7 +626,7 @@
     },
 
     receiveHotkey(payload) {
-      if (!this.capture || payload.name !== this.capture.setting.name) return;
+      if (!this.capture || this.capture.unbinding || payload.name !== this.capture.setting.name) return;
       this.setCapturePreview(payload.value);
       document.getElementById("capture-state").textContent = "Mouse binding ready — assigning it now";
       this.finishCapture(payload.value);
@@ -632,7 +634,9 @@
 
     async unbindCapture() {
       if (!this.capture) return;
-      const { setting } = this.capture;
+      const capture = this.capture;
+      capture.unbinding = true;
+      const { setting } = capture;
       document.getElementById("capture-state").textContent = "Removing hotkey binding…";
       this.setCapturePreview("", "Not bound");
       try {
