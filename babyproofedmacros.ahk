@@ -1,4 +1,4 @@
-﻿global macroVersion := "1.1.2"
+﻿global macroVersion := "1.1.3"
 #Requires AutoHotkey v2.1-alpha.28
 #SingleInstance Force
 #Warn All, Off
