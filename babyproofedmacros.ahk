@@ -1265,6 +1265,24 @@ smoothTurnDegrees(degrees, durationMs) {
   }
   return 0
 }
+
+ChunkArray(arr, chunkSize) {
+  chunks := []
+
+  Loop Ceil(arr.Length / chunkSize) {
+    chunk := []
+    start := (A_Index - 1) * chunkSize + 1
+    end := Min(start + chunkSize - 1, arr.Length)
+
+    Loop end - start + 1
+      chunk.Push(arr[start + A_Index - 1])
+
+    chunks.Push(chunk)
+  }
+
+  return chunks
+}
+
 convertToCharArray(text) {
   charArray := []
   loop parse text {
@@ -1272,17 +1290,26 @@ convertToCharArray(text) {
   }
   return charArray
 }
+
 SendStringByMessage(charArray) {
   hwnd := DllCall("GetForegroundWindow", "Ptr")
   if (!hwnd) {
     return 0
   }
 
-  for char in charArray {
-    DllCall("PostMessage", "Ptr", hwnd, "UInt", 0x0102, "Ptr", char, "Ptr", 1)
+  chunks := ChunkArray(charArray, 30)
+  for i, chunk in chunks {
+    for char in chunk {
+      DllCall("PostMessage", "Ptr", hwnd, "UInt", 0x0102, "Ptr", char, "Ptr", 1)
+    }
+    if (i < chunks.Length) {
+      frameSleep(1)
+    }
+
   }
   return 0
 }
+
 shouldPreserveLeftClick() {
   return retrieveSetting(SettingKey.PRESERVE_LEFT_CLICK).value && GetKeyState("LButton", "P")
 }
