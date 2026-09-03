@@ -1,4 +1,4 @@
-﻿global macroVersion := "1.1.3"
+﻿global macroVersion := "1.1.4"
 #Requires AutoHotkey v2.1-alpha.28
 #SingleInstance Force
 #Warn All, Off
@@ -92,12 +92,14 @@ Hotkey("~*Esc", (*) {
   onChatClose()
   return 0
 })
+
 if (!isRunningInExeContainer()) {
   Hotkey("*F12", (*) {
     Reload()
     return 0
   })
 }
+
 InstallRuntimeAssets(targetDir) {
   uiDir := targetDir "\ui"
   webView2Dir := targetDir "\lib\WebView2"
@@ -611,6 +613,7 @@ class SettingsManager {
     return !!this.findHotkeyBoundToAKey(key)
   }
 }
+
 class SettingElement {
   __New(name, type, defaultValue, tab, onChange := "", invisible := false) {
     this.name := name
@@ -669,6 +672,7 @@ class SettingElement {
     return 0
   }
 }
+
 class HotkeyElement extends SettingElement {
   __New(name, defaultValue, tab, macroExec := "", invisible := false, hotkeyValueAddendumPre := "", hotkeyValueAddendumPost := "", runWhenDisabled := false) {
     super.__New(name, "hotkey", defaultValue, tab, , invisible)
@@ -801,9 +805,7 @@ class HotkeyElement extends SettingElement {
     return 0
   }
 }
-; Keep values in the format accepted by Hotkey(). Modifier symbols are only
-; prefixes when a real activation key follows them; a modifier by itself is
-; stored as its named AHK key (for example Control or LWin).
+
 NormalizeHotkeyName(value) {
   value := Trim(value)
   if (value = "") {
@@ -864,6 +866,7 @@ NormalizeHotkeyName(value) {
   }
   return prefix value
 }
+
 BuildCapturedHotkey(key) {
   prefix := ""
   if GetKeyState("Ctrl", "P") {
@@ -880,12 +883,14 @@ BuildCapturedHotkey(key) {
   }
   return NormalizeHotkeyName(prefix key)
 }
+
 GetPhysicalKeyState(key) {
   if (key = "") {
     return false
   }
   return GetKeyState(key, "P")
 }
+
 ConfiguredHotkeySendString(key, state := "") {
   key := NormalizeHotkeyName(key)
   if (key = "") {
@@ -966,6 +971,7 @@ ConfiguredHotkeySendString(key, state := "") {
   }
   return result
 }
+
 CheckForUpdate() {
   if (!A_IsCompiled) {
     return JsonStringify(Map("ok", 1, "compiled", 0, "available", 0, "currentVersion", macroVersion))
@@ -1068,6 +1074,7 @@ DownloadAndInstallUpdate() {
 PowerShellLiteral(value) {
   return StrReplace(value, "'", "''")
 }
+
 ; Waits exactly 1 frame thanks to the keyboard hook in GTA
 frameSleep(amount) {
   loop amount {
@@ -1075,6 +1082,7 @@ frameSleep(amount) {
   }
   return 0
 }
+
 ; Uses a combination of the scroll wheel and the arrow keys to scroll faster, you can scroll twice in 2 frames with this instead of 4.
 scrollInDirection(direction, amount, extraInput := "") {
   doExtraInput := () { ; Send an extra input if provided by the caller
@@ -1121,6 +1129,7 @@ scrollInDirection(direction, amount, extraInput := "") {
   }
   return 0
 }
+
 accurateSleep(ms) {
   ; DllCall("Sleep", "UInt", ms)
 
@@ -1139,6 +1148,7 @@ accurateSleep(ms) {
   DllCall("WaitForSingleObject", "Ptr", hTimer, "UInt", 0xFFFFFFFF)
   return 0
 }
+
 retrieveSetting(settingName, ignoreErrors := false) {
   for tabName in guiTabs {
     for setting in settings[tabName] {
@@ -1152,6 +1162,7 @@ retrieveSetting(settingName, ignoreErrors := false) {
   }
   return ""
 }
+
 lockCursorToPixelCoordinates(x, y) {
   coords := getPixelCoordinates(x, y)
 
@@ -1165,31 +1176,72 @@ lockCursorToPixelCoordinates(x, y) {
   DllCall("ClipCursor", "Ptr", rect)
   return 0
 }
+
 releaseCursor() {
   DllCall("ClipCursor", "Ptr", 0)
   return 0
 }
+
 moveToPixelCoordinates(x, y) {
   coords := getPixelCoordinates(x, y)
   ; MouseMove, % coords.x, % coords.y
   DllCall("SetCursorPos", "Int", coords.x, "Int", coords.y)
   return 0
 }
-; Get the coordinates on the main screen for a certain x and y from 0 to 1
+
+; Get the coordinates on the main screen for a certain x and y from 0 to 1 clamped to the 16:9 HUD screenspace
 getPixelCoordinates(x, y) {
-  widescreenWidth := A_ScreenHeight * (16 / 9)
-  offsetX := (A_ScreenWidth - widescreenWidth) / 2
-  pixelX := offsetX + (widescreenWidth * x)
-  pixelY := A_ScreenHeight * y
-  return { x: Round(pixelX), y: Round(pixelY) }
+  WinGetClientPos(&windowX, &windowY, &windowWidth, &windowHeight, "ahk_class grcWindow")
+
+  aspect := windowWidth / windowHeight
+  targetAspect := 16 / 9
+
+  if (aspect <= targetAspect) {
+    contentWidth := windowWidth
+    contentHeight := windowHeight
+    offsetX := 0
+    offsetY := 0
+  } else {
+    contentHeight := windowHeight
+    contentWidth := contentHeight * targetAspect
+    offsetX := (windowWidth - contentWidth) / 2
+    offsetY := 0
+  }
+
+  return {
+    x: Round(windowX + offsetX + contentWidth * x),
+    y: Round(windowY + offsetY + contentHeight * y)
+  }
 }
+
 getPixelCoordinatesReverse(pixelX, pixelY) {
-  widescreenWidth := A_ScreenHeight * (16 / 9)
-  offsetX := (A_ScreenWidth - widescreenWidth) / 2
-  x := (pixelX - offsetX) / widescreenWidth
-  y := pixelY / A_ScreenHeight
-  return { x: x, y: y }
+  WinGetClientPos(&windowX, &windowY, &windowWidth, &windowHeight, "ahk_class grcWindow")
+
+  aspect := windowWidth / windowHeight
+  targetAspect := 16 / 9
+
+  if (aspect <= targetAspect) {
+    contentWidth := windowWidth
+    contentHeight := windowHeight
+    offsetX := 0
+    offsetY := 0
+  } else {
+    contentHeight := windowHeight
+    contentWidth := contentHeight * targetAspect
+    offsetX := (windowWidth - contentWidth) / 2
+    offsetY := 0
+  }
+
+  x := (pixelX - windowX - offsetX) / contentWidth
+  y := (pixelY - windowY - offsetY) / contentHeight
+
+  return {
+    x: x,
+    y: y
+  }
 }
+
+
 debugShowMouseCoords() {
   CoordMode("Mouse", "Screen")
 
@@ -1198,26 +1250,32 @@ debugShowMouseCoords() {
   ToolTip("X: " coords.x " Y: " coords.y)
   return 0
 }
+
 startCounting() {
   CounterBefore := 0
   DllCall("QueryPerformanceCounter", "Int64P", &CounterBefore)
   return (CounterBefore / queryPerformanceFrequency) * 1000
 }
+
 stopCounting(startTime) {
   CounterAfter := 0
   DllCall("QueryPerformanceCounter", "Int64P", &CounterAfter)
   return (CounterAfter * 1000 / queryPerformanceFrequency - startTime)
 }
+
 onChatClose() {
   global chatOpen := false
   return 0
 }
+
 isCursorHidden() {
   return A_Cursor == "Unknown"
 }
+
 isRunningInExeContainer() {
   return A_IsCompiled
 }
+
 ; Compensates for fractional pixels and turns a certain amount of degrees
 turnDegrees(degrees, applyVerticalDrift := true) {
   static driftAccumulatorX := 0
@@ -1250,6 +1308,7 @@ turnDegrees(degrees, applyVerticalDrift := true) {
   MouseMove(moveX, moveY, 0)
   return 0
 }
+
 smoothTurnDegrees(degrees, durationMs) {
   durationMs := Max(1, Number(durationMs))
   startTime := startCounting()
@@ -1313,10 +1372,12 @@ SendStringByMessage(charArray) {
 shouldPreserveLeftClick() {
   return retrieveSetting(SettingKey.PRESERVE_LEFT_CLICK).value && GetKeyState("LButton", "P")
 }
+
 cacheLastMacroExecutionTime() {
   global macroExecutionTime := stopCounting(macroExecutionStart)
   return 0
 }
+
 cout(text) {
   if (!IsSet(coutObj)) {
     if (FileExist(A_ScriptDir "\BabyProofedMacros.log")) {
@@ -1328,12 +1389,14 @@ cout(text) {
   coutObj.Read(0)
   return 0
 }
+
 unpressHorizontalMovementKeys() {
   KeyDisabler.disableKey("a")
   KeyDisabler.disableKey("d")
   SendInput("{Blind}{a up}{d up}")
   return 0
 }
+
 repressHorizontalMovementKeys() {
   KeyDisabler.enableKey("a")
   KeyDisabler.enableKey("d")
@@ -1345,9 +1408,11 @@ repressHorizontalMovementKeys() {
   }
   return 0
 }
+
 shouldHandleHorizontalMovementKeys() {
   return retrieveSetting(SettingKey.AUTO_HORIZONTAL).value ; && (stopCounting(lastHorizontalMovementKeyReleaseTime) < 200 || KeyState.getKeyState("a") || KeyState.getKeyState("d"))
 }
+
 class SettingKey {
   ; These values are persisted in config.ini and sent over the UI bridge.
   ; Keep them stable when renaming the display text for a setting.
@@ -1411,6 +1476,7 @@ class SettingKey {
   static MACRO_SPEED_PROFILE := "Enable macro speed profiling (only useful for developers)"
   static TEST_SHIT := "Test shit"
 }
+
 class SettingFactory {
   ; Keep this positional order aligned with HotkeyElement.__New. In
   ; particular, the less common invisible/prefix/suffix/runWhenDisabled
@@ -1431,6 +1497,7 @@ class SettingFactory {
     return SettingElement(name, "string", defaultValue, tab, onChange, invisible)
   }
 }
+
 makeSettings() {
   SettingFactory.Hotkey(SettingKey.SNIPER_RIFLE_KEYBIND, "9", tabs.KEYBINDS, , , , , , "INPUT_SELECT_WEAPON_SNIPER")
   SettingFactory.Hotkey(SettingKey.HEAVY_WEAPON_KEYBIND, "4", tabs.KEYBINDS, , , , , , "INPUT_SELECT_WEAPON_HEAVY")
@@ -1895,6 +1962,7 @@ makeSettings() {
   SettingFactory.Text(SettingKey.SMOOTH_TURN_DURATION, "500", tabs.ADVANCED, , isRunningInExeContainer() ? true : false).Describe("Smooth turn duration", "How long the Test shit smooth 180-degree turn should take, in milliseconds.")
   return 0
 }
+
 class SpamManager {
   __New() {
     this.timeUntilSwapAvailable := startCounting()
@@ -1967,6 +2035,7 @@ class SpamManager {
     return GetPhysicalKeyState(keybind)
   }
 }
+
 class KeyDisabler {
   static disabledKeys := []
 
@@ -2040,6 +2109,7 @@ class KeyDisabler {
     return false
   }
 }
+
 ; Self implemented GetKeyState to fix key sticking hopefully. Not reliable for some things, so only used for horizontal movement key handling for now.
 class KeyState {
   static keyStates := Map()
@@ -2058,6 +2128,7 @@ class KeyState {
     return this.keyStates[key]
   }
 }
+
 class XMLParser {
   __New(xmlString) {
     this.doc := ComObject("MSXML2.DOMDocument.6.0")
