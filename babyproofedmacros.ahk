@@ -1,4 +1,4 @@
-﻿global macroVersion := "1.1.4"
+﻿global macroVersion := "1.1.5"
 #Requires AutoHotkey v2.1-alpha.28
 #SingleInstance Force
 #Warn All, Off
@@ -732,8 +732,10 @@ class HotkeyElement extends SettingElement {
       KeyState.setKeyState(this.value, true)
     }
     if (chatOpen) {
-      thisKeybind := retrieveSetting(this.name).value
-      Send(ConfiguredHotkeySendString(thisKeybind))
+      if (!InStr(this.hotkeyValueAddendumPre, "~")) {
+        thisKeybind := retrieveSetting(this.name).value
+        Send(ConfiguredHotkeySendString(thisKeybind))
+      }
       return 0
     }
     try {
@@ -1398,6 +1400,11 @@ unpressHorizontalMovementKeys() {
 }
 
 repressHorizontalMovementKeys() {
+  if (chatOpen) {
+    KeyDisabler.enableKey("a")
+    KeyDisabler.enableKey("d")
+    return 0
+  }
   KeyDisabler.enableKey("a")
   KeyDisabler.enableKey("d")
   if (KeyState.getKeyState("a")) {
@@ -1800,7 +1807,7 @@ makeSettings() {
     leftClickHandlingSetting := retrieveSetting(SettingKey.AUTO_LEFT_CLICK).value
     shiftKeybind := retrieveSetting(SettingKey.SPRINT_KEYBIND).value
     automaticLButtonHandling := leftClickHandlingSetting && (lastTabSwitchData.weaponKey != c4Keybind || stopCounting(lastTabSwitchData.time) > 390) && weaponKey != c4Keybind && KeyState.getKeyState(shiftKeybind)
-    shouldHandleHorizontalMovementKeys := retrieveSetting(SettingKey.AUTO_HORIZONTAL).value
+    shouldHandleHorizontalMovementKeys := retrieveSetting(SettingKey.AUTO_HORIZONTAL).value && !chatOpen
     weaponWheelKey := retrieveSetting(SettingKey.WEAPON_WHEEL_KEYBIND).value
     if (automaticLButtonHandling && shouldHandleHorizontalMovementKeys) {
       unpressHorizontalMovementKeys()
@@ -1886,7 +1893,7 @@ makeSettings() {
     leftClickHandlingSetting := retrieveSetting(SettingKey.AUTO_LEFT_CLICK).value
     sprintKeybind := retrieveSetting(SettingKey.SPRINT_KEYBIND).value
     automaticLButtonHandling := leftClickHandlingSetting && (lastTabSwitchData.weaponKey != c4Keybind || stopCounting(lastTabSwitchData.time) > 390) && heavyWeaponKey != c4Keybind && KeyState.getKeyState(sprintKeybind)
-    shouldHandleHorizontalMovementKeys := retrieveSetting(SettingKey.AUTO_HORIZONTAL).value
+    shouldHandleHorizontalMovementKeys := retrieveSetting(SettingKey.AUTO_HORIZONTAL).value && !chatOpen
     weaponWheelKey := retrieveSetting(SettingKey.WEAPON_WHEEL_KEYBIND).value
     if (automaticLButtonHandling && shouldHandleHorizontalMovementKeys) {
       unpressHorizontalMovementKeys()
