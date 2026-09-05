@@ -1,4 +1,4 @@
-﻿global macroVersion := "1.1.5"
+﻿global macroVersion := "1.1.6"
 #Requires AutoHotkey v2.1-alpha.28
 #SingleInstance Force
 #Warn All, Off
@@ -267,6 +267,11 @@ GetStartupErrorMessage(exception) {
 }
 
 global spamManagerInstance := SpamManager()
+for tabName in guiTabs {
+  for setting in settings[tabName] {
+    setting.ApplyOnChange(true)
+  }
+}
 
 /*
 SetTimer((*) {
@@ -655,8 +660,13 @@ class SettingElement {
     } else {
       this.value := value
     }
+    this.ApplyOnChange()
+    return 0
+  }
+
+  ApplyOnChange(isStartup := false) {
     if (this.onChange != "") {
-      this.onChange(this.value, this.oldValue, 0)
+      this.onChange.Call(this.value, isStartup ? "__startup__" : this.oldValue)
     }
     return 0
   }
@@ -1442,6 +1452,7 @@ class SettingKey {
   static A_KEYBIND := "a keybind"
   static D_KEYBIND := "d keybind"
   static USE_CURSOR := "Use cursor in interaction menu for slightly faster macros"
+  static DISABLE_WINDOWS_KEY := "Disable Windows key"
   static PRESERVE_LEFT_CLICK := "Preserve left click state"
   static AMMO := "Ammo"
   static EWO := "EWO"
@@ -1539,7 +1550,6 @@ makeSettings() {
   }, true, "~", "up")
 
   SettingFactory.Bool(SettingKey.USE_CURSOR, false, tabs.GENERAL).Describe("Faster interaction menu", "Use the mouse cursor to speed up interaction-menu navigation. Requires a safezone size 1 tick below the maximum to work properly.")
-  SettingFactory.Bool(SettingKey.PRESERVE_LEFT_CLICK, true, tabs.ADVANCED).Describe("Preserve left click", "Restore left click after a macro if it was held before execution.")
   SettingFactory.Hotkey(SettingKey.AMMO, "", tabs.GENERAL, (*) {
     shouldUseCursor := retrieveSetting(SettingKey.USE_CURSOR).value
     interactionKey := retrieveSetting(SettingKey.INTERACTION_MENU_KEYBIND).value
@@ -1649,6 +1659,18 @@ makeSettings() {
     SetCapsLockState("Off")
     return 0
   }).Describe("EWO", "Run the primary easy-way-out macro.")
+
+  SettingFactory.Bool(SettingKey.DISABLE_WINDOWS_KEY, false, tabs.ADVANCED, (newValue, oldValue) {
+    if (newValue) {
+      KeyDisabler.disableKey("LWin")
+      KeyDisabler.disableKey("RWin")
+    } else {
+      KeyDisabler.enableKey("LWin")
+      KeyDisabler.enableKey("RWin")
+    }
+    return 0
+  }).Describe("Disable Windows key", "Disables the Windows key while tabbed in to GTA.")
+  SettingFactory.Bool(SettingKey.PRESERVE_LEFT_CLICK, true, tabs.ADVANCED).Describe("Preserve left click", "Restore left click after a macro if it was held before execution.")
   SettingFactory.Text(SettingKey.EWO_DELAY, "0", tabs.ADVANCED).Describe("EWO delay", "Delay the EWO sequence for a cleaner-looking ragdoll.")
   SettingFactory.Bool(SettingKey.SHOOT_BEFORE_EWO, true, tabs.ADVANCED).Describe("Shoot before EWO", "Left click before EWOing. Recommended to enable.")
   SettingFactory.Bool(SettingKey.EXPERIMENTAL_EWO, false, tabs.ADVANCED).Describe("Experimental EWO", "This is just Exility's EWO macro because someone asked me to add it")
@@ -1867,7 +1889,7 @@ makeSettings() {
     cacheLastMacroExecutionTime()
     return 0
   }).Describe("Sniper Spam", "Switches to C4 and back to sniper rifle.")
-  SettingFactory.Bool(SettingKey.FULLY_AUTOMATED_SPAM, false, tabs.ADVANCED, (newValue, oldValue, *) {
+  SettingFactory.Bool(SettingKey.FULLY_AUTOMATED_SPAM, false, tabs.ADVANCED, (newValue, oldValue) {
     if (oldValue == newValue) {
       return 0
     }
@@ -1977,9 +1999,6 @@ class SpamManager {
     this.quickSwitchDelay := 430
     this.customSwaps := []
     this.queuedThisShot := 0
-    if (retrieveSetting(SettingKey.FULLY_AUTOMATED_SPAM).value) {
-      SetTimer(ObjBindMethod(this, "runLoop"), 1, -2147483648)
-    }
   }
 
   queueSpam(weaponKey, swapToSticky, amount := 1) {
