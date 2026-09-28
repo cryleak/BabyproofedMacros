@@ -1,4 +1,4 @@
-﻿global macroVersion := "1.1.6"
+﻿global macroVersion := "1.1.7"
 #Requires AutoHotkey v2.1-alpha.28
 #SingleInstance Force
 #Warn All, Off
@@ -469,7 +469,10 @@ class SettingsManager {
       tabs.ADVANCED, Map("description", "Power-user controls and experimental behavior", "help", "These options can change timing or input behavior. Change them deliberately and test in-game.")
     )
 
-    state := Map("version", macroVersion, "compiled", (A_IsCompiled ? 1 : 0), "tabs", [])
+    state := Map("version", macroVersion, "compiled", (A_IsCompiled ? 1 : 0), "tabs", [], "scanCodeNames", Map())
+    for scanCode in ["sc029", "sc00C", "sc00D", "sc01A", "sc01B", "sc02B", "sc027", "sc028", "sc033", "sc034", "sc035", "sc056"] {
+      state["scanCodeNames"][scanCode] := GetKeyName(scanCode)
+    }
     for tabName in guiTabs {
       tabInfo := tabDescriptions[tabName]
       tabState := Map("id", tabName, "label", tabName, "description", tabInfo["description"], "help", tabInfo["help"], "settings", [])
@@ -502,7 +505,7 @@ class SettingsManager {
     label := RegExReplace(label, "i) \(automatically suspend macros when chat open\)", "")
     label := RegExReplace(label, "i) keybind$", "")
 
-    description := setting.type = "hotkey" ? "Choose a key, modifier, or modifier combination that triggers this macro." : setting.type = "bool" ? "Enable or disable this behavior." : "Set the value used by this macro."
+    description := setting.type = "hotkey" ? (setting.tab = tabs.KEYBINDS ? "Choose the single key bound in GTA." : "Choose a key, modifier, or modifier combination that triggers this macro.") : setting.type = "bool" ? "Enable or disable this behavior." : "Set the value used by this macro."
     experimental := InStr(setting.name, "experimental") || InStr(setting.name, "buggy") || InStr(setting.name, "developers")
     danger := setting.name = SettingKey.C4_MODE || setting.name = SettingKey.FULLY_AUTOMATED_SPAM
 
@@ -521,6 +524,9 @@ class SettingsManager {
     }
     if (setting is HotkeyElement) {
       value := NormalizeHotkeyName(value)
+      if (setting.tab = tabs.KEYBINDS && RegExMatch(value, "^[\^!+#]")) {
+        throw Error("In-game keybinds must be a single key.")
+      }
     }
     setting.SetValue(value)
     if (this.pendingHotkeyName = name) {
@@ -744,7 +750,7 @@ class HotkeyElement extends SettingElement {
     if (chatOpen) {
       if (!InStr(this.hotkeyValueAddendumPre, "~")) {
         thisKeybind := retrieveSetting(this.name).value
-        Send(ConfiguredHotkeySendString(thisKeybind))
+        Send("{Blind}{" thisKeybind "}")
       }
       return 0
     }
@@ -901,87 +907,6 @@ GetPhysicalKeyState(key) {
     return false
   }
   return GetKeyState(key, "P")
-}
-
-ConfiguredHotkeySendString(key, state := "") {
-  key := NormalizeHotkeyName(key)
-  if (key = "") {
-    return ""
-  }
-
-  modifiers := ""
-  baseKey := key
-  for symbol in ["^", "!", "+", "#"] {
-    if InStr(baseKey, symbol) {
-      modifiers .= symbol
-      baseKey := StrReplace(baseKey, symbol, "")
-    }
-  }
-
-  if (state = "") {
-    if (modifiers = "") {
-      return "{Blind}{" baseKey "}"
-    }
-    result := "{Blind}"
-    if InStr(modifiers, "^") {
-      result .= "{Control down}"
-    }
-    if InStr(modifiers, "!") {
-      result .= "{Alt down}"
-    }
-    if InStr(modifiers, "+") {
-      result .= "{Shift down}"
-    }
-    if InStr(modifiers, "#") {
-      result .= "{LWin down}"
-    }
-    result .= "{" baseKey " down}{" baseKey " up}"
-    if InStr(modifiers, "#") {
-      result .= "{LWin up}"
-    }
-    if InStr(modifiers, "+") {
-      result .= "{Shift up}"
-    }
-    if InStr(modifiers, "!") {
-      result .= "{Alt up}"
-    }
-    if InStr(modifiers, "^") {
-      result .= "{Control up}"
-    }
-    return result
-  }
-
-  if (state = "down") {
-    result := "{Blind}"
-    if InStr(modifiers, "^") {
-      result .= "{Control down}"
-    }
-    if InStr(modifiers, "!") {
-      result .= "{Alt down}"
-    }
-    if InStr(modifiers, "+") {
-      result .= "{Shift down}"
-    }
-    if InStr(modifiers, "#") {
-      result .= "{LWin down}"
-    }
-    return result "{" baseKey " down}"
-  }
-
-  result := "{Blind}{" baseKey " up}"
-  if InStr(modifiers, "#") {
-    result .= "{LWin up}"
-  }
-  if InStr(modifiers, "+") {
-    result .= "{Shift up}"
-  }
-  if InStr(modifiers, "!") {
-    result .= "{Alt up}"
-  }
-  if InStr(modifiers, "^") {
-    result .= "{Control up}"
-  }
-  return result
 }
 
 CheckForUpdate() {
@@ -1452,6 +1377,7 @@ class SettingKey {
   static A_KEYBIND := "a keybind"
   static D_KEYBIND := "d keybind"
   static USE_CURSOR := "Use cursor in interaction menu for slightly faster macros"
+  static AUTO_EQUIP_MINI_GUN := "Auto equip minigun"
   static DISABLE_WINDOWS_KEY := "Disable Windows key"
   static PRESERVE_LEFT_CLICK := "Preserve left click state"
   static AMMO := "Ammo"
@@ -1533,7 +1459,7 @@ makeSettings() {
   SettingFactory.Hotkey(SettingKey.WEAPON_WHEEL_KEYBIND, "tab", tabs.KEYBINDS, , , , , , "INPUT_SELECT_WEAPON")
   SettingFactory.Hotkey(SettingKey.CHAT_KEYBIND, "t", tabs.KEYBINDS, (*) {
     thisKeybind := retrieveSetting(SettingKey.CHAT_KEYBIND).value
-    Send(ConfiguredHotkeySendString(thisKeybind))
+    Send("{Blind}{" thisKeybind "}")
     global chatOpen := true
     return 0
   }, , , , , "INPUT_MP_TEXT_CHAT_ALL")
@@ -1558,7 +1484,7 @@ makeSettings() {
       lockCursorToPixelCoordinates(0.1175, 0.32075)
     }
     SendInput("{Blind}{lbutton up}{enter down}")
-    Send(ConfiguredHotkeySendString(interactionKey))
+    Send("{Blind}{" interactionKey "}")
     scrollInDirection("Down", inCEO ? 3 : 2)
     SendInput("{Blind}{enter up}")
     if (shouldUseCursor) {
@@ -1580,7 +1506,7 @@ makeSettings() {
       Send("{Blind}{enter up}")
     }
     cacheLastMacroExecutionTime()
-    Send(ConfiguredHotkeySendString(interactionKey))
+    Send("{Blind}{" interactionKey "}")
     if (shouldPreserveLeftClick()) {
       SendInput("{Blind}{lbutton down}")
     }
@@ -1660,6 +1586,48 @@ makeSettings() {
     return 0
   }).Describe("EWO", "Run the primary easy-way-out macro.")
 
+  SettingFactory.Hotkey(SettingKey.AUTO_EQUIP_MINI_GUN, "", tabs.ADVANCED, (*) {
+    unarmedHotkey := retrieveSetting(SettingKey.FISTS_KEYBIND).value
+    heavyWeaponHotkey := retrieveSetting(SettingKey.HEAVY_WEAPON_KEYBIND).value
+    shouldUseCursor := retrieveSetting(SettingKey.USE_CURSOR).value
+    interactionKey := retrieveSetting(SettingKey.INTERACTION_MENU_KEYBIND).value
+    static loadoutEnabled := true
+
+    if (shouldUseCursor) {
+      lockCursorToPixelCoordinates(0.1175, 0.35075)
+    }
+
+    SendInput("{Blind}{lbutton up}{enter down}")
+    Send("{Blind}{ " interactionKey "}")
+    scrollInDirection("Down", inCEO ? 3 : 2,)
+    SendInput("{Blind}{enter up}")
+    if (shouldUseCursor) {
+      frameSleep(1)
+      SendInput("{blind}{lbutton down}{enter down}")
+      frameSleep(1)
+      SendInput("{Blind}{lbutton up}")
+      Send("{Blind}{enter up}")
+    } else {
+      scrollInDirection("Down", 6, "{Blind}{enter down}")
+      SendInput("{Blind}{enter up}")
+    }
+    Send("{Blind}{" interactionKey "}")
+    if (loadoutEnabled) {
+      Send("{Blind}{" unarmedHotkey " down}{ " heavyWeaponHotkey " 2}{" heavyWeaponHotkey " down}")
+      loadoutEnabled := false
+    } else {
+      Send("{Blind}{" unarmedHotkey " down}{ " heavyWeaponHotkey "}")
+      loadoutEnabled := true
+    }
+    Send("{Blind}{tab}")
+    SendInput("{Blind}{" unarmedHotkey " up}{ " heavyWeaponHotkey " up}")
+    releaseCursor()
+    if (shouldPreserveLeftClick()) {
+      SendInput("{Blind}{lbutton down}")
+    }
+
+  }).Describe("Auto equip minigun", "Automatically equips the minigun by disabling weapon loadout and switching to minigun. Press again to re-enable your weapon loadout.")
+
   SettingFactory.Bool(SettingKey.DISABLE_WINDOWS_KEY, false, tabs.ADVANCED, (newValue, oldValue) {
     if (newValue) {
       KeyDisabler.disableKey("LWin")
@@ -1706,18 +1674,17 @@ makeSettings() {
     SendInput("{Blind}{" animationKey " up}{up up}{" lookBehindKey " up}{" meleePunchKey " up}")
     return 0
   }).Describe("Instant EWO", "Same as the EWO macro, but with 0 EWO Delay.")
-
   SettingFactory.Hotkey(SettingKey.TOGGLE_CEO, "", tabs.GENERAL, (*) {
     interactionKey := retrieveSetting(SettingKey.INTERACTION_MENU_KEYBIND).value
 
     SendInput("{Blind}{lbutton up}{enter down}")
     if (inCEO) {
-      Send(ConfiguredHotkeySendString(interactionKey))
+      Send("{Blind}{" interactionKey "}")
       Send("{Blind}{enter up}{up down}")
       SendInput("{Blind}{enter down}")
       Send("{Blind}{up up}{enter up}")
     } else {
-      Send(ConfiguredHotkeySendString(interactionKey))
+      Send("{Blind}{" interactionKey "}")
       scrollInDirection("Down", 6)
       SendInput("{Blind}{enter up}")
       Send("{Blind}{enter}")
@@ -1743,7 +1710,9 @@ makeSettings() {
     }
     return 0
   }).Describe("Chat spam", "Send the configured chat message repeatedly.")
+
   SettingFactory.Text(SettingKey.CHAT_SPAM_TEXT, "Ω", tabs.GENERAL).Describe("Chat spam text", "The message used by the chat spam macro.")
+
   SettingFactory.Hotkey(SettingKey.FAST_RESPAWN, "", tabs.GENERAL, (*) {
     thisKeybind := retrieveSetting(SettingKey.FAST_RESPAWN).value
     while (GetPhysicalKeyState(thisKeybind)) {
@@ -1755,12 +1724,15 @@ makeSettings() {
     cacheLastMacroExecutionTime()
     return 0
   }).Describe("Fast respawn", "Left clicks 5 billion times so you respawn fast after being killed by another player.")
+
   SettingFactory.Hotkey(SettingKey.QUICK_TURN, "", tabs.GENERAL, (*) {
     degrees := retrieveSetting(SettingKey.DEGREES_TO_TURN).value
     turnDegrees(degrees)
     return 0
   }).Describe("Quick turn", "Turn your character by the configured number of degrees. Requires raw input method and 0 mouse sensitivity in the game settings.")
+
   SettingFactory.Text(SettingKey.DEGREES_TO_TURN, "180", tabs.GENERAL).Describe("Turn amount", "How many degrees the quick-turn macro should rotate.")
+
   SettingFactory.Hotkey(SettingKey.BST, "", tabs.GENERAL, (*) {
     if (!inCEO) {
       if (FileExist(A_ScriptDir . "\communication 1.ahk") && FileExist(A_ScriptDir . "\communication 2.ahk")) {
@@ -1780,7 +1752,7 @@ makeSettings() {
 
     SendInput("{Blind}{lbutton up}{enter down}")
 
-    Send(ConfiguredHotkeySendString(interactionMenuKey))
+    Send("{Blind}{" interactionMenuKey "}")
     Send("{Blind}{enter up}")
     scrollInDirection("Down", 4, "{Blind}{enter down}")
     SendInput("{Blind}{enter up}")
@@ -1920,26 +1892,24 @@ makeSettings() {
     if (automaticLButtonHandling && shouldHandleHorizontalMovementKeys) {
       unpressHorizontalMovementKeys()
     }
-    Send(ConfiguredHotkeySendString(heavyWeaponKey))
+    Send("{Blind}{" heavyWeaponKey "}")
     Send("{Blind}{" heavyWeaponKey " down}")
-    if (automaticLButtonHandling) {
-      SendInput("{Blind}{lbutton up}")
-    }
-    Send(ConfiguredHotkeySendString(weaponWheelKey))
+    Send("{Blind}{" weaponWheelKey "}")
     SendInput("{Blind}{" heavyWeaponKey " up}")
 
     if (automaticLButtonHandling) {
+      SendInput("{Blind}{lbutton up}")
       SetTimer(() {
         if (GetKeyState("LButton", "P")) {
           SendInput("{Blind}{lbutton down}")
         }
         return 0
-      }, -100)
+      }, -110)
       if (shouldHandleHorizontalMovementKeys) {
         SetTimer(() {
           repressHorizontalMovementKeys()
           return 0
-        }, -100)
+        }, -110)
       }
     }
     cacheLastMacroExecutionTime()
@@ -1955,7 +1925,7 @@ makeSettings() {
     Send("{Blind}{" fistsKey " down}")
     if (pressAmount > 1) {
       loop pressAmount - 1 {
-        Send(ConfiguredHotkeySendString(weaponKey))
+        Send("{Blind}{" weaponKey "}")
       }
     }
     Send("{Blind}{" weaponKey " down}{" weaponWheelKey "}")
@@ -1978,7 +1948,6 @@ makeSettings() {
     cacheLastMacroExecutionTime()
     return 0
   }).Describe("Safe heavy swap", "Prevents your currently held heavy weapon from being reset when you switch to it after respawning. This is slower if you don't have 0 melee weapons in your loadout.")
-
   SettingFactory.Bool(SettingKey.MACRO_SPEED_PROFILE, false, tabs.ADVANCED, , isRunningInExeContainer() ? true : false).Describe("Macro speed profiling", "Log the execution time of each macro to a file. Only useful for analysis.")
   if (isRunningInExeContainer()) {
     retrieveSetting(SettingKey.MACRO_SPEED_PROFILE).value := false
@@ -1991,7 +1960,6 @@ makeSettings() {
   SettingFactory.Text(SettingKey.SMOOTH_TURN_DURATION, "500", tabs.ADVANCED, , isRunningInExeContainer() ? true : false).Describe("Smooth turn duration", "How long the Test shit smooth 180-degree turn should take, in milliseconds.")
   return 0
 }
-
 class SpamManager {
   __New() {
     this.timeUntilSwapAvailable := startCounting()
@@ -2000,7 +1968,6 @@ class SpamManager {
     this.customSwaps := []
     this.queuedThisShot := 0
   }
-
   queueSpam(weaponKey, swapToSticky, amount := 1) {
     if (this.customSwaps.Length && this.customSwaps[1].keyPresses <= 1 && this.customSwaps[1].weaponKey == weaponKey && this.customSwaps[1].swapToSticky == swapToSticky && retrieveSetting(SettingKey.QUEUE_DOUBLE_SWITCH).value) {
       this.customSwaps[1].keyPresses += 1
@@ -2010,7 +1977,6 @@ class SpamManager {
     this.customSwaps.Push({ weaponKey: weaponKey, swapToSticky: swapToSticky, keyPresses: amount })
     return 0
   }
-
   runLoop() {
     if (stopCounting(this.timeUntilSwapAvailable) < 0 || !WinActive("ahk_class grcWindow")) {
       return 0
@@ -2052,7 +2018,6 @@ class SpamManager {
     }
     return 0
   }
-
   isSpamming() {
     keybind := retrieveSetting(SettingKey.AUTOMATED_RPG_SPAM, true).value
     if (!keybind) {
@@ -2061,10 +2026,8 @@ class SpamManager {
     return GetPhysicalKeyState(keybind)
   }
 }
-
 class KeyDisabler {
   static disabledKeys := []
-
   static enableAllKeys() {
     for key in this.disabledKeys {
       HotIfWinActive("ahk_class grcWindow")
@@ -2074,7 +2037,6 @@ class KeyDisabler {
     this.disabledKeys := []
     return 0
   }
-
   static disableKey(key) {
     if (this.isKeyDisabled(key)) {
       return 0
@@ -2101,7 +2063,6 @@ class KeyDisabler {
     this.disabledKeys.Push({ key: key, hotkeySetting: hotkeySetting })
     return 0
   }
-
   static enableKey(key) {
     for index, keyObj in this.disabledKeys {
       disabledKey := keyObj.key
@@ -2125,7 +2086,6 @@ class KeyDisabler {
     }
     return 0
   }
-
   static isKeyDisabled(key) {
     for keyObj in this.disabledKeys {
       if (keyObj.key == key) {
@@ -2135,16 +2095,13 @@ class KeyDisabler {
     return false
   }
 }
-
 ; Self implemented GetKeyState to fix key sticking hopefully. Not reliable for some things, so only used for horizontal movement key handling for now.
 class KeyState {
   static keyStates := Map()
-
   static setKeyState(key, state) {
     this.keyStates[key] := state
     return 0
   }
-
   static getKeyState(key) {
     if (!this.keyStates.Has(key)) {
       ; vkCode := GetKeyVK(key)
@@ -2154,18 +2111,15 @@ class KeyState {
     return this.keyStates[key]
   }
 }
-
 class XMLParser {
   __New(xmlString) {
     this.doc := ComObject("MSXML2.DOMDocument.6.0")
     this.doc.async := false
     this.doc.loadXML(xmlString)
-
     if (this.doc.parseError.errorCode != 0) {
       throw Error("XML Parse Error: " this.doc.parseError.reason)
     }
   }
-
   GetValueOrDefault(xpath, default := "") {
     try {
       node := this.doc.selectSingleNode(xpath)
@@ -2175,7 +2129,6 @@ class XMLParser {
     }
     return default
   }
-
   GetAttributeOrDefault(xpath, attributeName, default := "") {
     try {
       node := this.doc.selectSingleNode(xpath)

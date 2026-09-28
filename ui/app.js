@@ -517,13 +517,15 @@
       if (!this.capture) return;
       const modifiers = Array.from(this.capture.activeModifiers);
       if (!modifiers.length) {
-        this.setCapturePreview("", "Press a key or hold a modifier");
+        this.setCapturePreview("", this.capture.singleKey ? "Press one key" : "Press a key or hold a modifier");
         document.getElementById("capture-state").textContent = "Listening for your next input";
         return;
       }
       const prefix = prefixesForModifiers(new Set(modifiers));
-      this.setCapturePreview(prefix + "…", "Press a key");
-      document.getElementById("capture-state").textContent = `${modifiers.map(displayModifier).join(" + ")} held — add a key or release to bind`;
+      this.setCapturePreview(prefix + "…", this.capture.singleKey ? "Release to bind" : "Press a key");
+      document.getElementById("capture-state").textContent = this.capture.singleKey
+        ? `${modifiers.map(displayModifier).join(" + ")} held — release to bind`
+        : `${modifiers.map(displayModifier).join(" + ")} held — add a key or release to bind`;
     },
 
     async changeSetting(setting, value) {
@@ -546,15 +548,19 @@
       this.capture = {
         setting,
         button,
+        singleKey: this.activeTab === "In-game keybinds",
         activeModifiers: new Set(),
-        usedModifiers: new Set()
+        usedModifiers: new Set(),
+        rejectedCombination: false
       };
       this.setHotkeyButton(button, "", "Listening…");
       button.classList.add("capturing");
       document.getElementById("capture-target").textContent = setting.label || setting.name;
-      document.getElementById("capture-copy").textContent = "Hold any modifiers, then press the key you want to use.";
+      document.getElementById("capture-copy").textContent = this.capture.singleKey
+        ? "Press one key. Modifier keys can be bound alone."
+        : "Hold any modifiers, then press the key you want to use.";
       document.getElementById("capture-layer").hidden = false;
-      this.setCapturePreview("", "Press a key or hold a modifier");
+      this.setCapturePreview("", this.capture.singleKey ? "Press one key" : "Press a key or hold a modifier");
       document.getElementById("capture-state").textContent = "Listening for your next input";
       document.addEventListener("keydown", this.onCaptureKeyDown, true);
       document.addEventListener("keyup", this.onCaptureKeyUp, true);
@@ -584,8 +590,16 @@
         app.updateCapturePreview();
         return;
       }
+      if (app.capture.singleKey && (app.capture.activeModifiers.size || hasEventModifier(event))) {
+        app.capture.usedModifiers.clear();
+        app.capture.rejectedCombination = true;
+        document.getElementById("capture-state").textContent = "In-game keybinds take one key. Release the modifier and try again.";
+        return;
+      }
       const value = normalizeHotkey(event, app.capture);
       if (!value) return;
+      const key = keyNameFromEvent(event);
+      if (key.startsWith("sc") && event.key?.length === 1) app.state.scanCodeNames[key] = event.key;
       app.setCapturePreview(value);
       document.getElementById("capture-state").textContent = "Hotkey ready — assigning it now";
       app.finishCapture(value);
@@ -598,6 +612,13 @@
       const modifier = modifierForEvent(event);
       if (!modifier) return;
       app.capture.activeModifiers.delete(modifier);
+      if (app.capture.rejectedCombination) {
+        if (!app.capture.activeModifiers.size) {
+          app.capture.rejectedCombination = false;
+          app.updateCapturePreview();
+        }
+        return;
+      }
       app.updateCapturePreview();
       if (!app.capture.activeModifiers.size && app.capture.usedModifiers.size === 1) {
         const modifierName = Array.from(app.capture.usedModifiers)[0];
@@ -610,6 +631,10 @@
 
     async finishCapture(value) {
       if (!this.capture || this.capture.unbinding) return;
+      if (this.capture.singleKey && /^[\^!+#]/.test(value)) {
+        document.getElementById("capture-state").textContent = "In-game keybinds take one key. Release the modifier and try again.";
+        return;
+      }
       const capture = this.capture;
       const { setting } = capture;
       try {
@@ -625,8 +650,18 @@
       }
     },
 
-    receiveHotkey(payload) {
+    async receiveHotkey(payload) {
       if (!this.capture || this.capture.unbinding || payload.name !== this.capture.setting.name) return;
+      if (this.capture.singleKey && /^[\^!+#]/.test(payload.value)) {
+        document.getElementById("capture-state").textContent = "In-game keybinds take one key. Release the modifier and try again.";
+        try {
+          await this.call("beginHotkeyCapture", payload.name);
+        } catch (error) {
+          await this.reportError("beginHotkeyCapture", error);
+          this.toast("Could not restart hotkey capture: " + error, "error");
+        }
+        return;
+      }
       this.setCapturePreview(payload.value);
       document.getElementById("capture-state").textContent = "Mouse binding ready — assigning it now";
       this.finishCapture(payload.value);
@@ -784,9 +819,9 @@
       ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right", CapsLock: "CapsLock",
       NumLock: "NumLock", ScrollLock: "ScrollLock", PrintScreen: "PrintScreen", ContextMenu: "AppsKey",
       Pause: "Pause", NumpadMultiply: "NumpadMult", NumpadAdd: "NumpadAdd", NumpadSubtract: "NumpadSub",
-      NumpadDecimal: "NumpadDot", NumpadDivide: "NumpadDiv", Backquote: "vkC0", Minus: "vkBD",
-      Equal: "vkBB", BracketLeft: "vkDB", BracketRight: "vkDD", Backslash: "vkDC", Semicolon: "vkBA",
-      Quote: "vkDE", Comma: "vkBC", Period: "vkBE", Slash: "vkBF",
+      NumpadDecimal: "NumpadDot", NumpadDivide: "NumpadDiv", Backquote: "sc029", Minus: "sc00C",
+      Equal: "sc00D", BracketLeft: "sc01A", BracketRight: "sc01B", Backslash: "sc02B", Semicolon: "sc027",
+      Quote: "sc028", Comma: "sc033", Period: "sc034", Slash: "sc035", IntlBackslash: "sc056",
       AudioVolumeMute: "Volume_Mute", AudioVolumeDown: "Volume_Down", AudioVolumeUp: "Volume_Up",
       MediaTrackNext: "Media_Next", MediaTrackPrevious: "Media_Prev", MediaStop: "Media_Stop", MediaPlayPause: "Media_Play_Pause"
     };
@@ -818,6 +853,7 @@
 
   function displayKeyName(key) {
     const lower = String(key).toLowerCase();
+    if (app.state?.scanCodeNames?.[key]) return app.state.scanCodeNames[key];
     const names = {
       control: "Ctrl", ctrl: "Ctrl", alt: "Alt", shift: "Shift", lwin: "Win", rwin: "Win",
       lcontrol: "Ctrl", rcontrol: "Ctrl", lctrl: "Ctrl", rctrl: "Ctrl", lalt: "Alt", ralt: "Alt",
