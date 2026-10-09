@@ -1,16 +1,17 @@
-﻿global macroVersion := "1.1.7"
+﻿global macroVersion := "1.2.0"
 #Requires AutoHotkey v2.1-alpha.28
 #SingleInstance Force
 #Warn All, Off
 #UseHook 1
 #include RAGEKeyMap.ahk
 #include lib/UIInterop.ahk
+#include lib/MacroQueue.ahk
 InstallKeybdHook(1, 1)
 InstallMouseHook(1, 1)
 
-#MaxThreadsPerHotkey 1
+#MaxThreadsPerHotkey 2
 #MaxThreads 255
-#MaxThreadsBuffer true
+#MaxThreadsBuffer false
 A_MaxHotkeysPerInterval := 99000000
 A_HotkeyInterval := 99000000
 SendMode("Event")
@@ -82,6 +83,7 @@ global macroExecutionTime := 0
 global lastMacroExecutionTime := 0
 
 global lastTabSwitchData := { weaponKey: "", time: 0 }
+global switchRestorePending := { leftClick: false, movement: false }
 global queryPerformanceFrequency := 0
 DllCall("QueryPerformanceFrequency", "Int64P", &queryPerformanceFrequency)
 Hotkey("~*Enter", (*) {
@@ -266,7 +268,6 @@ GetStartupErrorMessage(exception) {
   return "An unknown error occurred while starting the application."
 }
 
-global spamManagerInstance := SpamManager()
 for tabName in guiTabs {
   for setting in settings[tabName] {
     setting.ApplyOnChange(true)
@@ -330,6 +331,7 @@ class SettingsManager {
     this._addMouseHook()
 
     SetTimer((*) {
+      this.ui.UpdateActivity()
       if (this.ui.IsActive()) {
         this._addMouseHook()
       } else {
@@ -339,16 +341,12 @@ class SettingsManager {
     }, 100)
 
     ; Keep the SendInput health indicator updated while GTA is running.
-    ; This timer was part of the pre-WebView2 settings window and was lost
-    ; during the UI bridge refactor.
     SetTimer((*) {
-      if (WinActive("ahk_class grcWindow")) {
+      if (!MacroQueue.running && WinActive("ahk_class grcWindow")) {
         this._updateSendInputState()
       }
-      static gtaOpen := false
-      if (WinExist("ahk_class grcWindow") && !gtaOpen) {
+      if (!MacroQueue.running && stopCounting(lastMacroExecutionTime) > 1000) {
         InstallKeybdHook(1, 1)
-        gtaOpen := true
       }
       return 0
     }, 1000)
@@ -507,7 +505,7 @@ class SettingsManager {
 
     description := setting.type = "hotkey" ? (setting.tab = tabs.KEYBINDS ? "Choose the single key bound in GTA." : "Choose a key, modifier, or modifier combination that triggers this macro.") : setting.type = "bool" ? "Enable or disable this behavior." : "Set the value used by this macro."
     experimental := InStr(setting.name, "experimental") || InStr(setting.name, "buggy") || InStr(setting.name, "developers")
-    danger := setting.name = SettingKey.C4_MODE || setting.name = SettingKey.FULLY_AUTOMATED_SPAM
+    danger := setting.name = SettingKey.C4_MODE
 
     if (setting.uiMeta.Has("label")) {
       label := setting.uiMeta["label"]
@@ -700,6 +698,8 @@ class HotkeyElement extends SettingElement {
     this.hotkeyValueAddendumPost := hotkeyValueAddendumPost == "" ? "" : " " hotkeyValueAddendumPost
     this.disabledByKeyDisabler := false
     this.runWhenDisabled := runWhenDisabled
+    this.held := false
+    this.pressId := 0
   }
 
   SetValue(value) {
@@ -742,10 +742,27 @@ class HotkeyElement extends SettingElement {
   }
 
   performHotkey(*) {
+    repeat := false
     if (InStr(this.hotkeyValueAddendumPost, "Up")) {
       KeyState.setKeyState(this.value, false)
     } else {
+      repeat := this.held
+      this.held := true
+      if (!repeat) {
+        this.pressId += 1
+      }
       KeyState.setKeyState(this.value, true)
+    }
+    return MacroQueue.Run(ObjBindMethod(this, "_executeHotkey", repeat, this.pressId), this, repeat)
+  }
+
+  _executeHotkey(repeat, pressId) {
+    if (repeat && (pressId != this.pressId || !GetPhysicalKeyState(this.value))) {
+      return 0
+    }
+    if (!WinActive("ahk_class grcWindow")) {
+      MacroQueue.pending.Length := 0
+      return 0
     }
     if (chatOpen) {
       if (!InStr(this.hotkeyValueAddendumPre, "~")) {
@@ -761,13 +778,12 @@ class HotkeyElement extends SettingElement {
       if (retrieveSetting(SettingKey.MACRO_SPEED_PROFILE).value && macroExecutionTime != 0) {
         cout("Macro " this.name " took " Round(macroExecutionTime, 2) " ms to execute. Last macro was executed " Round(stopCounting(lastMacroExecutionTime), 2) " ms ago.")
         macroExecutionTime := 0
-        global lastMacroExecutionTime := startCounting()
       }
+      global lastMacroExecutionTime := startCounting()
     } catch as err {
       BlockInput("Off")
       BlockInput("MouseMoveOff")
       throw err
-      ExitApp
     }
     return 0
   }
@@ -814,6 +830,7 @@ class HotkeyElement extends SettingElement {
       }, "On")
     } else {
       try Hotkey(this.hotkeyValueAddendumPre "*" this.value this.hotkeyValueAddendumPost " up", (*) {
+        this.held := false
         KeyState.setKeyState(this.value, false)
         return 0
       }, "On")
@@ -1335,7 +1352,8 @@ unpressHorizontalMovementKeys() {
 }
 
 repressHorizontalMovementKeys() {
-  if (chatOpen) {
+  switchRestorePending.movement := false
+  if (chatOpen || !WinActive("ahk_class grcWindow")) {
     KeyDisabler.enableKey("a")
     KeyDisabler.enableKey("d")
     return 0
@@ -1347,6 +1365,35 @@ repressHorizontalMovementKeys() {
   }
   if (KeyState.getKeyState("d")) {
     SendInput("{Blind}{d down}")
+  }
+  return 0
+}
+
+restoreLeftClick() {
+  switchRestorePending.leftClick := false
+  if (WinActive("ahk_class grcWindow") && !chatOpen && GetKeyState("LButton", "P")) {
+    SendInput("{Blind}{lbutton down}")
+  }
+  return 0
+}
+
+scheduleSwitchRestores(leftClickDelay, movementDelay, restoreClick, restoreMovement) {
+  static clickTimer := ObjBindMethod(MacroQueue, "Run", restoreLeftClick, restoreLeftClick, true)
+  static movementTimer := ObjBindMethod(MacroQueue, "Run", repressHorizontalMovementKeys, repressHorizontalMovementKeys, true)
+  previousCritical := Critical("On")
+  try {
+    switchRestorePending.leftClick := switchRestorePending.leftClick || restoreClick
+    switchRestorePending.movement := switchRestorePending.movement || restoreMovement
+    MacroQueue.Cancel(restoreLeftClick)
+    MacroQueue.Cancel(repressHorizontalMovementKeys)
+    if (switchRestorePending.leftClick) {
+      SetTimer(clickTimer, -leftClickDelay)
+    }
+    if (switchRestorePending.movement) {
+      SetTimer(movementTimer, -movementDelay)
+    }
+  } finally {
+    Critical(previousCritical)
   }
   return 0
 }
@@ -1407,11 +1454,8 @@ class SettingKey {
   static MELEE_WEAPON_TAB_SWITCH := "Melee weapon tab switch"
   static RPG_SPAM := "RPG Spam"
   static SNIPER_SPAM := "Sniper Spam"
-  static FULLY_AUTOMATED_SPAM := "Use fully automated spam (extremely buggy)"
   static AUTO_LEFT_CLICK := "Automatic left click handling (buggy)"
   static AUTO_HORIZONTAL := "Automatic horizontal key handling (experimental)"
-  static QUEUE_DOUBLE_SWITCH := "Queue double switching"
-  static AUTOMATED_RPG_SPAM := "Automated RPG Spam (experimental)"
   static DOUBLE_SWITCH := "Double switch"
   static EXPLICIT_RPG_SWITCH := "Explicit RPG Switch"
   static EXPLICIT_HOMING_SWITCH := "Explicit Homing Launcher Switch"
@@ -1791,11 +1835,6 @@ makeSettings() {
 
   quickSwitchMethod := (keybind, *) {
     weaponKey := retrieveSetting(keybind).value
-    useAutomatedSpam := retrieveSetting(SettingKey.FULLY_AUTOMATED_SPAM).value
-    if (useAutomatedSpam && spamManagerInstance.isSpamming()) {
-      spamManagerInstance.queueSpam(weaponKey, false)
-      return 0
-    }
     c4Keybind := retrieveSetting(SettingKey.STICKY_BOMB_KEYBIND).value
     heavyWeaponKey := retrieveSetting(SettingKey.HEAVY_WEAPON_KEYBIND).value
     leftClickHandlingSetting := retrieveSetting(SettingKey.AUTO_LEFT_CLICK).value
@@ -1814,20 +1853,7 @@ makeSettings() {
     if (weaponKey == heavyWeaponKey) {
       SendInput("{Blind}{WheelDown}") ; automatic zoom out?
     }
-    if (automaticLButtonHandling) {
-      SetTimer(() {
-        if (GetKeyState("LButton", "P")) {
-          SendInput("{Blind}{lbutton down}")
-        }
-        return 0
-      }, -100)
-      if (shouldHandleHorizontalMovementKeys) {
-        SetTimer(() {
-          repressHorizontalMovementKeys()
-          return 0
-        }, -105)
-      }
-    }
+    scheduleSwitchRestores(105, 110, automaticLButtonHandling, automaticLButtonHandling && shouldHandleHorizontalMovementKeys)
     cacheLastMacroExecutionTime()
     global lastTabSwitchData := { time: startCounting(), weaponKey: weaponKey }
     return 0
@@ -1861,28 +1887,10 @@ makeSettings() {
     cacheLastMacroExecutionTime()
     return 0
   }).Describe("Sniper Spam", "Switches to C4 and back to sniper rifle.")
-  SettingFactory.Bool(SettingKey.FULLY_AUTOMATED_SPAM, false, tabs.ADVANCED, (newValue, oldValue) {
-    if (oldValue == newValue) {
-      return 0
-    }
-    if (newValue) {
-      SetTimer(ObjBindMethod(spamManagerInstance, "runLoop"), 1, -2147483648)
-    } else {
-      SetTimer(ObjBindMethod(spamManagerInstance, "runLoop"), 0)
-    }
-    return 0
-  })
   SettingFactory.Bool(SettingKey.AUTO_LEFT_CLICK, false, tabs.ADVANCED).Describe("Automatic left click handling", "Automatically handle releasing and pressing of the left mouse button when shift switching.")
   SettingFactory.Bool(SettingKey.AUTO_HORIZONTAL, false, tabs.ADVANCED).Describe("Automatic horizontal key handling", "Automatically handle releasing and pressing of horizontal movement keys when shift switching.")
-  SettingFactory.Bool(SettingKey.QUEUE_DOUBLE_SWITCH, false, tabs.ADVANCED).Describe("Queue double switch", "I forgot what this does I think it sucks though")
-  SettingFactory.Hotkey(SettingKey.AUTOMATED_RPG_SPAM, "", tabs.ADVANCED).Describe("Automated RPG spam", "I forgot what this does I think it sucks though")
   SettingFactory.Hotkey(SettingKey.DOUBLE_SWITCH, "", tabs.WEAPONSWITCH, (*) {
     heavyWeaponKey := retrieveSetting(SettingKey.HEAVY_WEAPON_KEYBIND).value
-    useAutomatedSpam := retrieveSetting(SettingKey.FULLY_AUTOMATED_SPAM).value
-    if (useAutomatedSpam && spamManagerInstance.isSpamming()) {
-      spamManagerInstance.queueSpam(heavyWeaponKey, false, 2)
-      return 0
-    }
     c4Keybind := retrieveSetting(SettingKey.STICKY_BOMB_KEYBIND).value
     leftClickHandlingSetting := retrieveSetting(SettingKey.AUTO_LEFT_CLICK).value
     sprintKeybind := retrieveSetting(SettingKey.SPRINT_KEYBIND).value
@@ -1899,19 +1907,8 @@ makeSettings() {
 
     if (automaticLButtonHandling) {
       SendInput("{Blind}{lbutton up}")
-      SetTimer(() {
-        if (GetKeyState("LButton", "P")) {
-          SendInput("{Blind}{lbutton down}")
-        }
-        return 0
-      }, -110)
-      if (shouldHandleHorizontalMovementKeys) {
-        SetTimer(() {
-          repressHorizontalMovementKeys()
-          return 0
-        }, -110)
-      }
     }
+    scheduleSwitchRestores(115, 115, automaticLButtonHandling, automaticLButtonHandling && shouldHandleHorizontalMovementKeys)
     cacheLastMacroExecutionTime()
     global lastTabSwitchData := { time: startCounting(), weaponKey: heavyWeaponKey }
     return 0
@@ -1960,72 +1957,6 @@ makeSettings() {
   SettingFactory.Text(SettingKey.SMOOTH_TURN_DURATION, "500", tabs.ADVANCED, , isRunningInExeContainer() ? true : false).Describe("Smooth turn duration", "How long the Test shit smooth 180-degree turn should take, in milliseconds.")
   return 0
 }
-class SpamManager {
-  __New() {
-    this.timeUntilSwapAvailable := startCounting()
-    this.spamDelay := 550
-    this.quickSwitchDelay := 430
-    this.customSwaps := []
-    this.queuedThisShot := 0
-  }
-  queueSpam(weaponKey, swapToSticky, amount := 1) {
-    if (this.customSwaps.Length && this.customSwaps[1].keyPresses <= 1 && this.customSwaps[1].weaponKey == weaponKey && this.customSwaps[1].swapToSticky == swapToSticky && retrieveSetting(SettingKey.QUEUE_DOUBLE_SWITCH).value) {
-      this.customSwaps[1].keyPresses += 1
-      return 0
-    }
-    this.lastQueue := startCounting()
-    this.customSwaps.Push({ weaponKey: weaponKey, swapToSticky: swapToSticky, keyPresses: amount })
-    return 0
-  }
-  runLoop() {
-    if (stopCounting(this.timeUntilSwapAvailable) < 0 || !WinActive("ahk_class grcWindow")) {
-      return 0
-    }
-    stickyBombKey := retrieveSetting(SettingKey.STICKY_BOMB_KEYBIND).value
-    heavyWeaponKey := retrieveSetting(SettingKey.HEAVY_WEAPON_KEYBIND).value
-    automatedSpamKey := retrieveSetting(SettingKey.AUTOMATED_RPG_SPAM, true).value
-    weaponWheelKey := retrieveSetting(SettingKey.WEAPON_WHEEL_KEYBIND).value
-    if (!automatedSpamKey) {
-      return 0
-    }
-    shouldHandleLButton := retrieveSetting(SettingKey.AUTO_LEFT_CLICK).value
-    if (GetPhysicalKeyState(automatedSpamKey)) {
-      action := this.customSwaps.Length ? this.customSwaps.RemoveAt(1) : { weaponKey: heavyWeaponKey, swapToSticky: true, keyPresses: 1 }
-      lbuttonState := GetKeyState("LButton", "P") && shouldHandleLButton
-      if (action.swapToSticky) {
-        Send("{Blind}{" stickyBombKey " down}")
-      } else if (lbuttonState) {
-        SendInput("{Blind}{lbutton up}")
-      }
-
-      if (action.keyPresses > 1) {
-        loop action.keyPresses - 1 {
-          Send("{Blind}{" action.weaponKey "}")
-        }
-      }
-      Send("{Blind}{" action.weaponKey " down}{" weaponWheelKey "}")
-      SendInput("{Blind}{" action.weaponKey " up}{" stickyBombKey " up}")
-      this.timeUntilSwapAvailable := startCounting() + (action.swapToSticky ? this.spamDelay : this.quickSwitchDelay)
-      if (lbuttonState) {
-        SendInput("{Blind}{lbutton down}")
-        if (action.keyPresses > 1) {
-          accurateSleep(50)
-        }
-      }
-      return 0
-    } else {
-      this.customSwaps := []
-    }
-    return 0
-  }
-  isSpamming() {
-    keybind := retrieveSetting(SettingKey.AUTOMATED_RPG_SPAM, true).value
-    if (!keybind) {
-      return false
-    }
-    return GetPhysicalKeyState(keybind)
-  }
-}
 class KeyDisabler {
   static disabledKeys := []
   static enableAllKeys() {
@@ -2056,6 +1987,9 @@ class KeyDisabler {
       return 0
     }, "On")
     Hotkey("*" key " up", (*) {
+      if (!!hotkeySetting) {
+        hotkeySetting.held := false
+      }
       KeyState.setKeyState(key, false)
       return 0
     }, "On")

@@ -42,12 +42,16 @@ FormatErrorDetails(exception, mode := "") {
 class SettingsWebUI {
     __New(manager) {
         this.manager := manager
+        this.visible := true
+        this.windowVisible := true
+        this.pendingScripts := []
+        this.sendInputStatus := ""
         this.window := Gui("+Resize +MinSize960x640", "Babyproofed Macros")
         this.window.MarginX := 0
         this.window.MarginY := 0
         this.window.BackColor := "10131D"
         this.window.OnEvent("Close", (*) => ExitApp())
-        this.window.OnEvent("Size", (guiObj, minMax, width, height) => this.Resize(width, height))
+        this.window.OnEvent("Size", (guiObj, minMax, width, height) => this.Resize(width, height, minMax))
 
         this.surface := this.window.Add("Text", "x0 y0 w1120 h760")
         this.window.Show("w1120 h760")
@@ -90,7 +94,11 @@ class SettingsWebUI {
         return uri
     }
 
-    Resize(width, height) {
+    Resize(width, height, minMax := 0) {
+        if (this.HasProp("controller")) {
+            this.windowVisible := minMax != -1
+            this.UpdateActivity()
+        }
         if (width <= 0 || height <= 0) {
             return 0
         }
@@ -100,12 +108,57 @@ class SettingsWebUI {
     }
 
     Show() {
+        this.windowVisible := true
         this.window.Show()
+        this.UpdateActivity()
         return 0
     }
 
     Hide() {
+        this.windowVisible := false
+        this.UpdateActivity()
         this.window.Hide()
+        return 0
+    }
+
+    UpdateActivity() {
+        return this._setVisible(this.windowVisible && !WinActive("ahk_class grcWindow"))
+    }
+
+    _setVisible(visible) {
+        if (this.visible = visible) {
+            return 0
+        }
+        this.visible := visible
+        try {
+            if (visible) {
+                this.webview.Resume()
+                this.controller.IsVisible := true
+                scripts := this.pendingScripts
+                this.pendingScripts := []
+                for script in scripts {
+                    this.Execute(script)
+                }
+                if (this.sendInputStatus != "") {
+                    this.Send("sendInputStatus", this.sendInputStatus)
+                }
+            } else {
+                this.controller.IsVisible := false
+                this.webview.TrySuspendAsync().onSettled(ObjBindMethod(this, "_suspendCompleted"), (err) => ErrorLogger.Log("ahk_webview_suspend", FormatErrorDetails(err)))
+            }
+        } catch as err {
+            ErrorLogger.Log("ahk_webview_visibility", FormatErrorDetails(err))
+        }
+        return 0
+    }
+
+    _suspendCompleted(success) {
+        ; Reopening can race with completion of the asynchronous suspend request.
+        if (this.visible) {
+            try this.webview.Resume()
+        } else if (!success) {
+            ErrorLogger.Log("ahk_webview_suspend", "WebView2 declined the suspend request.")
+        }
         return 0
     }
 
@@ -114,6 +167,10 @@ class SettingsWebUI {
     }
 
     Execute(script) {
+        if (!this.visible) {
+            this.pendingScripts.Push(script)
+            return 0
+        }
         try this.webview.ExecuteScriptAsync(script)
         catch as err {
             ErrorLogger.Log("ahk_webview_execute", FormatErrorDetails(err))
@@ -122,6 +179,12 @@ class SettingsWebUI {
     }
 
     Send(eventName, payload) {
+        if (eventName = "sendInputStatus") {
+            this.sendInputStatus := payload
+            if (!this.visible) {
+                return 0
+            }
+        }
         this.Execute("window.bpmReceive && window.bpmReceive(" JsonStringify(eventName) "," JsonStringify(payload) ");")
         return 0
     }
